@@ -17,6 +17,120 @@ window.__ModuleLoader__.load({
     const { jsx, jsxs } = require('react/jsx-runtime');
     const { useState } = React;
 
+    const I18N_NS = "dsh-chat-export";
+    const I18N_EMPTY_SNAPSHOT = { revision: 0 };
+    const I18N_DICT = {
+      en: {
+        "btnExport": "Export chat",
+        "btnExportTitle": "Export this conversation as Markdown, HTML, or PDF",
+        "dialogTitle": "Export chat",
+        "close": "Close",
+        "rowConversation": "Conversation",
+        "rowFormat": "Format",
+        "rowContent": "Content",
+        "unnamedConversation": "Untitled conversation",
+        "includeReasoning": "Include thinking (off by default)",
+        "includeTools": "Include tool calls & results",
+        "ignoreQuestionsTitle": "Do not export user prompts; keep only assistant replies",
+        "ignoreQuestions": "Ignore questioner content (replies only)",
+        "selectTurns": "Select turns to export",
+        "selectAll": "Select all",
+        "clear": "Clear",
+        "selectedCount": "Selected {n} / {total}",
+        "turnOrdinal": "Turn {n}",
+        "badgeReasoning": "thinking",
+        "badgeTools": "tools",
+        "previewUser": "User: ",
+        "previewAssistant": "Assistant: ",
+        "responseIncomplete": "(response incomplete)",
+        "loadingTurns": "Loading turns…",
+        "turnsError": "Failed to load turns: {message}",
+        "retry": "Retry",
+        "emptyTurns": "This conversation has no turns to export.",
+        "unknownError": "unknown error",
+        "cancel": "Cancel",
+        "export": "Export",
+        "exporting": "Exporting…",
+        "generatingPdf": "Generating PDF…",
+        "exported": "Exported {name}",
+        "pdfFallbackNote": "Direct PDF generation did not finish; opened a print view — choose “Save as PDF”. ({reason})",
+        "pdfFailHtmlNote": "PDF generation failed; downloaded HTML instead. ({reason})",
+        "selectAtLeastOne": "Select at least one turn",
+        "requestFailed": "Request failed: HTTP {status}{detail}",
+        "pdfRenderFailed": "PDF rendering failed",
+        "tooManyPages": "Conversation is too long (over {pages} pages) for direct PDF generation. Turn off “Include tool calls” or use HTML / Markdown."
+      },
+      zh: {
+        "btnExport": "导出对话",
+        "btnExportTitle": "将本对话导出为 Markdown、HTML 或 PDF",
+        "dialogTitle": "导出对话",
+        "close": "关闭",
+        "rowConversation": "对话",
+        "rowFormat": "格式",
+        "rowContent": "内容",
+        "unnamedConversation": "未命名对话",
+        "includeReasoning": "包含思考过程（默认忽略）",
+        "includeTools": "包含工具调用与结果",
+        "ignoreQuestionsTitle": "不导出用户提问，只保留助手回复",
+        "ignoreQuestions": "忽略提问内容（只导出回复）",
+        "selectTurns": "选择要导出的回合",
+        "selectAll": "全选",
+        "clear": "清空",
+        "selectedCount": "已选 {n} / {total}",
+        "turnOrdinal": "回合 {n}",
+        "badgeReasoning": "思考",
+        "badgeTools": "工具",
+        "previewUser": "用户：",
+        "previewAssistant": "助手：",
+        "responseIncomplete": "（回复未完成）",
+        "loadingTurns": "正在读取回合…",
+        "turnsError": "回合读取失败：{message}",
+        "retry": "重试",
+        "emptyTurns": "该对话没有可导出的回合。",
+        "unknownError": "未知错误",
+        "cancel": "取消",
+        "export": "导出",
+        "exporting": "正在导出…",
+        "generatingPdf": "正在生成 PDF…",
+        "exported": "已导出 {name}",
+        "pdfFallbackNote": "PDF 直接生成未成功，已打开打印视图，请在打印窗口选择“另存为 PDF”。（{reason}）",
+        "pdfFailHtmlNote": "PDF 生成失败，已改为下载 HTML。（{reason}）",
+        "selectAtLeastOne": "请至少选择一个回合",
+        "requestFailed": "请求失败：HTTP {status}{detail}",
+        "pdfRenderFailed": "PDF 渲染失败",
+        "tooManyPages": "对话过长（超过 {pages} 页），直接生成 PDF 可能很慢。请关闭“包含工具调用”或改用 HTML / Markdown。"
+      }
+    };
+    let i18nTranslate = null;
+    let i18nLocale = null;
+    let i18nFallbackLang = "en";
+    function detectLang(tag) {
+      return String(tag || "").toLowerCase().startsWith("zh") ? "zh" : "en";
+    }
+    function fallbackTranslate(lang) {
+      const dict = I18N_DICT[lang] || I18N_DICT.en;
+      return (key) => dict[key] || I18N_DICT.en[key] || key;
+    }
+    function t(key, vars) {
+      let value = null;
+      if (i18nTranslate) {
+        try { value = i18nTranslate(key); } catch { value = null; }
+      }
+      if (typeof value !== "string" || value === key) value = fallbackTranslate(i18nFallbackLang)(key);
+      if (vars) {
+        for (const name of Object.keys(vars)) value = value.split("{" + name + "}").join(String(vars[name]));
+      }
+      return value;
+    }
+    function subscribeLocale(callback) {
+      if (i18nLocale && typeof i18nLocale.subscribe === "function") return i18nLocale.subscribe(callback);
+      return () => {};
+    }
+    function getLocaleRevision() {
+      if (i18nLocale && typeof i18nLocale.getSnapshot === "function") return i18nLocale.getSnapshot();
+      return I18N_EMPTY_SNAPSHOT;
+    }
+
     const SESSIONS_PATH = '/api/chat-export.sessions';
     const TURNS_PATH = '/api/chat-export.turns';
     const BUILD_PATH = '/api/chat-export.build';
@@ -88,7 +202,7 @@ window.__ModuleLoader__.load({
       });
       if (!response.ok) {
         const detail = await response.text().catch(() => '');
-        throw new Error('请求失败：HTTP ' + response.status + (detail === '' ? '' : ' ' + detail));
+        throw new Error(t('requestFailed', { status: response.status, detail: detail === '' ? '' : ' ' + detail }));
       }
       return response.json();
     }
@@ -203,7 +317,7 @@ window.__ModuleLoader__.load({
       image.decoding = 'async';
       await new Promise((resolve, reject) => {
         image.onload = () => resolve();
-        image.onerror = () => reject(new Error('PDF 渲染失败'));
+        image.onerror = () => reject(new Error(t('pdfRenderFailed')));
         image.src = url;
       });
       const canvas = document.createElement('canvas');
@@ -365,7 +479,7 @@ window.__ModuleLoader__.load({
         page.height = cutPx;
         page.getContext('2d').drawImage(canvas, 0, 0, canvas.width, cutPx, 0, 0, canvas.width, cutPx);
         if (jpegPages.length >= 150) {
-          throw new Error('对话过长（超过 150 页），直接生成 PDF 可能很慢。请关闭“包含工具调用”或改用 HTML / Markdown。');
+          throw new Error(t('tooManyPages', { pages: 150 }));
         }
         pushCanvas(page);
         start += cutCss;
@@ -386,6 +500,7 @@ window.__ModuleLoader__.load({
     // ---- React component ----
 
     function ChatExportAction({ sessionId }) {
+      if (typeof React.useSyncExternalStore === "function") React.useSyncExternalStore(subscribeLocale, getLocaleRevision);
       const [open, setOpen] = useState(false);
       const [sessions, setSessions] = useState({ status: 'idle', list: [], error: null });
       const [target, setTarget] = useState(sessionId);
@@ -440,7 +555,7 @@ window.__ModuleLoader__.load({
         setError(null);
         setNote(null);
         if (selected.size === 0) {
-          setError('请至少选择一个回合');
+          setError(t('selectAtLeastOne'));
           return;
         }
         setBusy(true);
@@ -455,23 +570,23 @@ window.__ModuleLoader__.load({
           const stem = value.fileStem || 'dsh-conversation';
           if (format === 'md') {
             saveBlob(new Blob([value.markdown], { type: 'text/markdown;charset=utf-8' }), stem + '.md');
-            setNote('已导出 ' + stem + '.md');
+            setNote(t('exported', { name: stem + '.md' }));
           } else if (format === 'html') {
             saveBlob(new Blob([value.html], { type: 'text/html;charset=utf-8' }), stem + '.html');
-            setNote('已导出 ' + stem + '.html');
+            setNote(t('exported', { name: stem + '.html' }));
           } else {
-            setNote('正在生成 PDF…');
+            setNote(t('generatingPdf'));
             try {
               const blob = await buildPdfBlob(value.fragment);
               saveBlob(blob, stem + '.pdf');
-              setNote('已导出 ' + stem + '.pdf');
+              setNote(t('exported', { name: stem + '.pdf' }));
             } catch (pdfError) {
               const reason = errorMessage(pdfError);
               if (printHtmlDocument(value.html)) {
-                setNote('PDF 直接生成未成功，已打开打印视图，请在打印窗口选择“另存为 PDF”。（' + reason + '）');
+                setNote(t('pdfFallbackNote', { reason }));
               } else {
                 saveBlob(new Blob([value.html], { type: 'text/html;charset=utf-8' }), stem + '.html');
-                setNote('PDF 生成失败，已改为下载 HTML。（' + reason + '）');
+                setNote(t('pdfFailHtmlNote', { reason }));
               }
             }
           }
@@ -492,9 +607,9 @@ window.__ModuleLoader__.load({
           children: jsx('button', {
             type: 'button',
             className: 'dshChatExportButton',
-            title: '将本对话导出为 Markdown、HTML 或 PDF',
+            title: t('btnExportTitle'),
             onClick: openDialog,
-            children: '导出对话',
+            children: t('btnExport'),
           }),
         });
       }
@@ -509,16 +624,16 @@ window.__ModuleLoader__.load({
 
       let turnBody;
       if (turns.status === 'loading') {
-        turnBody = jsx('p', { className: 'dshChatExportHint', children: '正在读取回合…' });
+        turnBody = jsx('p', { className: 'dshChatExportHint', children: t('loadingTurns') });
       } else if (turns.status === 'error') {
         turnBody = jsxs('div', {
           children: [
-            jsx('p', { className: 'dshChatExportHint', children: '回合读取失败：' + (turns.error || '未知错误') }),
-            jsx('button', { type: 'button', className: 'dshChatExportSmall', onClick: () => loadTurns(target), children: '重试' }),
+            jsx('p', { className: 'dshChatExportHint', children: t('turnsError', { message: turns.error || t('unknownError') }) }),
+            jsx('button', { type: 'button', className: 'dshChatExportSmall', onClick: () => loadTurns(target), children: t('retry') }),
           ],
         });
       } else if (turns.list.length === 0) {
-        turnBody = jsx('p', { className: 'dshChatExportHint', children: '该对话没有可导出的回合。' });
+        turnBody = jsx('p', { className: 'dshChatExportHint', children: t('emptyTurns') });
       } else {
         turnBody = jsx('ul', {
           className: 'dshChatExportTurns',
@@ -543,15 +658,15 @@ window.__ModuleLoader__.load({
                     jsxs('span', {
                       className: 'dshChatExportOrd',
                       children: [
-                        '回合 ' + (turn.index + 1),
-                        turn.hasReasoning ? jsx('span', { className: 'dshChatExportBadge', children: '思考' }) : null,
-                        turn.hasTools ? jsx('span', { className: 'dshChatExportBadge', children: '工具' }) : null,
+                        t('turnOrdinal', { n: turn.index + 1 }),
+                        turn.hasReasoning ? jsx('span', { className: 'dshChatExportBadge', children: t('badgeReasoning') }) : null,
+                        turn.hasTools ? jsx('span', { className: 'dshChatExportBadge', children: t('badgeTools') }) : null,
                       ],
                     }),
-                    jsx('div', { className: 'dshChatExportPreview', children: '用户：' + turn.human }),
+                    jsx('div', { className: 'dshChatExportPreview', children: t('previewUser') + turn.human }),
                     jsx('div', {
                       className: 'dshChatExportPreview asst',
-                      children: turn.assistant === null ? '（回复未完成）' : '助手：' + turn.assistant,
+                      children: turn.assistant === null ? t('responseIncomplete') : t('previewAssistant') + turn.assistant,
                     }),
                   ],
                 }),
@@ -569,9 +684,9 @@ window.__ModuleLoader__.load({
           jsx('button', {
             type: 'button',
             className: 'dshChatExportButton',
-            title: '将本对话导出为 Markdown、HTML 或 PDF',
+            title: t('btnExportTitle'),
             onClick: openDialog,
-            children: '导出对话',
+            children: t('btnExport'),
           }),
           jsxs('div', {
             className: 'dshChatExportOverlay',
@@ -581,16 +696,16 @@ window.__ModuleLoader__.load({
                 className: 'dshChatExportDialog',
                 role: 'dialog',
                 'aria-modal': true,
-                'aria-label': '导出对话',
+                'aria-label': t('btnExport'),
                 children: [
                   jsxs('div', {
                     className: 'dshChatExportHead',
                     children: [
-                      jsx('h2', { children: '导出对话' }),
+                      jsx('h2', { children: t('dialogTitle') }),
                       jsx('button', {
                         type: 'button',
                         className: 'dshChatExportClose',
-                        'aria-label': '关闭',
+                        'aria-label': t('close'),
                         disabled: busy,
                         onClick: closeDialog,
                         children: '×',
@@ -603,7 +718,7 @@ window.__ModuleLoader__.load({
                       jsxs('div', {
                         className: 'dshChatExportRow',
                         children: [
-                          jsx('span', { className: 'dshChatExportRowLabel', children: '对话' }),
+                          jsx('span', { className: 'dshChatExportRowLabel', children: t('rowConversation') }),
                           jsx('div', {
                             className: 'dshChatExportSelect',
                             style: { flex: '1 1 auto' },
@@ -617,7 +732,7 @@ window.__ModuleLoader__.load({
                               },
                               children: sessionOptions.map((item) => jsx('option', {
                                 value: item.sessionId,
-                                children: (item.title || '未命名对话') + ' · ' + shortId(item.sessionId),
+                                children: (item.title || t('unnamedConversation')) + ' · ' + shortId(item.sessionId),
                               }, item.sessionId)),
                             }),
                           }),
@@ -626,7 +741,7 @@ window.__ModuleLoader__.load({
                       jsxs('div', {
                         className: 'dshChatExportRow',
                         children: [
-                          jsx('span', { className: 'dshChatExportRowLabel', children: '格式' }),
+                          jsx('span', { className: 'dshChatExportRowLabel', children: t('rowFormat') }),
                           jsx('div', {
                             className: 'dshChatExportSeg',
                             children: [
@@ -640,7 +755,7 @@ window.__ModuleLoader__.load({
                       jsxs('div', {
                         className: 'dshChatExportRow',
                         children: [
-                          jsx('span', { className: 'dshChatExportRowLabel', children: '内容' }),
+                          jsx('span', { className: 'dshChatExportRowLabel', children: t('rowContent') }),
                           jsxs('div', {
                             style: { display: 'flex', gap: '16px', flexWrap: 'wrap' },
                             children: [
@@ -648,22 +763,22 @@ window.__ModuleLoader__.load({
                                 className: 'dshChatExportCheck',
                                 children: [
                                   jsx('input', { type: 'checkbox', checked: includeReasoning, disabled: busy, onChange: (event) => setIncludeReasoning(event.target.checked) }),
-                                  '包含思考过程（默认忽略）',
+                                  t('includeReasoning'),
                                 ],
                               }),
                               jsxs('label', {
                                 className: 'dshChatExportCheck',
                                 children: [
                                   jsx('input', { type: 'checkbox', checked: includeTools, disabled: busy, onChange: (event) => setIncludeTools(event.target.checked) }),
-                                  '包含工具调用与结果',
+                                  t('includeTools'),
                                 ],
                               }),
                               jsxs('label', {
                                 className: 'dshChatExportCheck',
-                                title: '不导出用户提问，只保留助手回复',
+                                title: t('ignoreQuestionsTitle'),
                                 children: [
                                   jsx('input', { type: 'checkbox', checked: ignoreQuestions, disabled: busy, onChange: (event) => setIgnoreQuestions(event.target.checked) }),
-                                  '忽略提问内容（只导出回复）',
+                                  t('ignoreQuestions'),
                                 ],
                               }),
                             ],
@@ -673,22 +788,22 @@ window.__ModuleLoader__.load({
                       jsxs('div', {
                         className: 'dshChatExportToolbar',
                         children: [
-                          jsx('span', { style: { fontSize: '13px', color: 'var(--dsw-alias-label-secondary)' }, children: '选择要导出的回合' }),
+                          jsx('span', { style: { fontSize: '13px', color: 'var(--dsw-alias-label-secondary)' }, children: t('selectTurns') }),
                           jsx('button', {
                             type: 'button',
                             className: 'dshChatExportSmall',
                             disabled: busy || targetTurns.length === 0 || selectedCount === targetTurns.length,
                             onClick: () => setSelected(new Set(targetTurns.map((turn) => turn.index))),
-                            children: '全选',
+                            children: t('selectAll'),
                           }),
                           jsx('button', {
                             type: 'button',
                             className: 'dshChatExportSmall',
                             disabled: busy || selectedCount === 0,
                             onClick: () => setSelected(new Set()),
-                            children: '清空',
+                            children: t('clear'),
                           }),
-                          jsx('span', { className: 'dshChatExportCount', children: '已选 ' + selectedCount + ' / ' + targetTurns.length }),
+                          jsx('span', { className: 'dshChatExportCount', children: t('selectedCount', { n: selectedCount, total: targetTurns.length }) }),
                         ],
                       }),
                       turnBody,
@@ -699,14 +814,14 @@ window.__ModuleLoader__.load({
                   jsxs('div', {
                     className: 'dshChatExportFoot',
                     children: [
-                      jsx('button', { type: 'button', className: 'dshChatExportSecondary', disabled: busy, onClick: closeDialog, children: '取消' }),
+                      jsx('button', { type: 'button', className: 'dshChatExportSecondary', disabled: busy, onClick: closeDialog, children: t('cancel') }),
                       jsx('button', {
                         type: 'button',
                         className: 'dshChatExportPrimary',
                         disabled: !canExport,
                         'aria-busy': busy,
                         onClick: doExport,
-                        children: busy ? (format === 'pdf' ? '正在生成 PDF…' : '正在导出…') : '导出',
+                        children: busy ? (format === 'pdf' ? t('generatingPdf') : t('exporting')) : t('export'),
                       }),
                     ],
                   }),
@@ -719,14 +834,33 @@ window.__ModuleLoader__.load({
     }
 
     return {
-      inject: ['slots'],
-      __test: { assemblePdf, compactSelection, xhtmlBody, analyzePage },
+      inject: ['slots', 'locale'],
+      __test: { assemblePdf, compactSelection, xhtmlBody, analyzePage, i18nDict: I18N_DICT, translate: t },
       apply(ctx) {
+        try {
+          const locale = ctx.get?.('locale');
+          const activeSnapshot = locale && typeof locale.getLocale === 'function' ? locale.getLocale() : null;
+          const active = (activeSnapshot && activeSnapshot.active) || (typeof navigator !== 'undefined' ? navigator.language : 'en');
+          i18nFallbackLang = detectLang(active);
+          if (locale && typeof locale.register === 'function' && typeof locale.bind === 'function') {
+            for (const code of ['en', 'zh']) {
+              const registerLocale = () => locale.register(I18N_NS, code, I18N_DICT[code]);
+              if (typeof ctx.effect === 'function') ctx.effect(registerLocale, 'chat-export: locale ' + code);
+              else registerLocale();
+            }
+            i18nTranslate = locale.bind(I18N_NS);
+            i18nLocale = locale;
+          } else {
+            i18nTranslate = fallbackTranslate(i18nFallbackLang);
+          }
+        } catch {
+          i18nTranslate = fallbackTranslate(i18nFallbackLang);
+        }
         ctx.slots.inject('conversation.session.header.utilities', () => ctx.slots.register({
           name: 'conversation.session.header.utilities',
           id: 'chat-export',
           order: 20,
-          label: '导出对话',
+          label: t('btnExport'),
         }, ChatExportAction));
       },
     };

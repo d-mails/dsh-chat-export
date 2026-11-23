@@ -21,7 +21,7 @@ const plugin = captured.factory((id) => {
 
 test('client module registers the header utilities slot', () => {
   assert.equal(captured.id, 'dsh-chat-export');
-  assert.deepEqual(plugin.inject, ['slots']);
+  assert.deepEqual(plugin.inject, ['slots', 'locale']);
   const registered = [];
   const ctx = {
     slots: {
@@ -90,6 +90,40 @@ test('analyzePage picks a cut inside a uniform blank band', () => {
   assert.equal(isTextRow(cutRow), false, 'cut must land on a blank row');
   // contentBottom should roughly match the last text row.
   assert.ok(Math.abs(info.contentBottomCss - (height - 1) / 2) < 40);
+});
+
+test('translates UI strings for the active DSH locale', () => {
+  const dicts = {};
+  let active = 'en';
+  const locale = {
+    register(ns, code, dict) { dicts[code] = dict; return () => {}; },
+    bind() { return (key) => (dicts[active] && dicts[active][key]) || key; },
+    getLocale() { return { active, revision: 0 }; },
+    getSnapshot() { return { active, revision: 0 }; },
+    subscribe() { return () => {}; },
+  };
+  const ctx = {
+    get(name) { return name === 'locale' ? locale : undefined; },
+    effect(fn) { return fn(); },
+    slots: { inject(_owner, fn) { fn(); }, register() { return () => {}; } },
+  };
+  plugin.apply(ctx);
+  const { translate } = plugin.__test;
+  assert.equal(translate('btnExport'), 'Export chat');
+  active = 'zh';
+  assert.equal(translate('btnExport'), '导出对话');
+});
+
+test('i18n dictionaries have matching keys in en and zh', () => {
+  const { i18nDict } = plugin.__test;
+  const en = Object.keys(i18nDict.en).sort();
+  const zh = Object.keys(i18nDict.zh).sort();
+  assert.deepEqual(en, zh);
+  assert.ok(en.includes('btnExport'));
+  for (const key of en) {
+    assert.ok(typeof i18nDict.en[key] === 'string' && i18nDict.en[key].length > 0, 'en ' + key);
+    assert.ok(typeof i18nDict.zh[key] === 'string' && i18nDict.zh[key].length > 0, 'zh ' + key);
+  }
 });
 
 test('assemblePdf scales a short page image to its own aspect ratio', async () => {
