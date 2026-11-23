@@ -1,0 +1,6 @@
+# Add one dual-face plugin row to the Web profile. The host half owns the
+# sessionQuery -> Markdown/HTML/PDF routes; dsh.client mounts the additive
+# Session-header export action from the same package manifest.
+- insert:
+    - id: chat-export
+      name: dsh-chat-export

@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Chat Export",
+    "description": "Export a DeepSeek Harness conversation to Markdown, HTML, or PDF. In the conversation header click 导出对话: choose any conversation, pick the format, optionally include thinking and tool calls, hide the questioner's messages, and tick the turns you want (all by default). Export runs locally in your browser; nothing is uploaded."
+  }
+}

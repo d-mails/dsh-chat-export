@@ -1,0 +1,105 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+
+// Load the browser client module under a minimal stub so its pure helpers can be
+// tested in Node.
+let captured;
+globalThis.window = { __ModuleLoader__: { load: (spec) => { captured = spec; } } };
+await import('../client.js');
+
+const ReactStub = {
+  useState: (initial) => [typeof initial === 'function' ? initial() : initial, () => {}],
+  useEffect: () => {},
+  createElement: () => null,
+};
+const jsxRuntimeStub = { jsx: () => null, jsxs: () => null };
+const plugin = captured.factory((id) => {
+  if (id === 'react') return ReactStub;
+  if (id === 'react/jsx-runtime') return jsxRuntimeStub;
+  throw new Error('unexpected require ' + id);
+});
+
+test('client module registers the header utilities slot', () => {
+  assert.equal(captured.id, 'dsh-chat-export');
+  assert.deepEqual(plugin.inject, ['slots']);
+  const registered = [];
+  const ctx = {
+    slots: {
+      inject(owner, fn) { registered.push(owner); fn(); },
+      register(options) { registered.push(options); return () => {}; },
+    },
+  };
+  plugin.apply(ctx);
+  assert.ok(registered.includes('conversation.session.header.utilities'));
+});
+
+test('compactSelection uses include/exclude and bits', () => {
+  const { compactSelection } = plugin.__test;
+  assert.deepEqual(compactSelection(new Set([0, 1]), 4), { include: [0, 1], count: 4 });
+  assert.deepEqual(compactSelection(new Set([0, 1, 2]), 4), { exclude: [3], count: 4 });
+  const big = new Set();
+  for (let i = 0; i < 1000; i++) big.add(i * 2);
+  const result = compactSelection(big, 2000);
+  assert.ok(typeof result.bits === 'string' && result.count === 2000);
+});
+
+test('assemblePdf produces a multi-page PDF structure', async () => {
+  const { assemblePdf } = plugin.__test;
+  const page = { bytes: new Uint8Array([0xff, 0xd8, 0xff, 0xd9]), width: 1588, height: 2246 };
+  const blob = assemblePdf([page, page]);
+  assert.equal(blob.type, 'application/pdf');
+  const text = await blob.text();
+  assert.ok(text.startsWith('%PDF-1.4'));
+  assert.ok(text.includes('/Type /Catalog'));
+  assert.ok(text.includes('/Type /Pages'));
+  assert.ok(text.includes('/Count 2'));
+  assert.ok(text.includes('/Subtype /Image'));
+  assert.ok(text.includes('DCTDecode'));
+  assert.ok(text.includes('startxref'));
+  assert.ok(text.trimEnd().endsWith('%%EOF'));
+});
+
+test('xhtmlBody self-closes void tags for foreignObject', () => {
+  const { xhtmlBody } = plugin.__test;
+  assert.equal(xhtmlBody('a<br>b<hr><img src="x">'), 'a<br/>b<hr/><img src="x"/>');
+});
+
+test('analyzePage picks a cut inside a uniform blank band', () => {
+  const { analyzePage } = plugin.__test;
+  const width = 40;
+  const height = 3000;
+  const data = new Uint8ClampedArray(width * height * 4).fill(255);
+  const isTextRow = (y) => (y % 60) < 24;
+  for (let y = 0; y < height; y++) {
+    if (!isTextRow(y)) continue;
+    const base = y * width * 4;
+    for (let x = 0; x < width; x++) {
+      if (x % 4 >= 2) continue;
+      const i = base + x * 4;
+      data[i] = 0; data[i + 1] = 0; data[i + 2] = 0;
+    }
+  }
+  const canvas = { width, height, getContext: () => ({ getImageData: () => ({ data }) }) };
+  const info = analyzePage(canvas);
+  assert.equal(info.blank, false);
+  assert.ok(info.cutCss !== null);
+  // Page window is 0.5*A4H .. A4H in CSS px; cut must be inside that window.
+  assert.ok(info.cutCss >= 1123 * 0.5 - 1 && info.cutCss <= 1123 + 1);
+  // The cut row (in device px) must be a blank row, never a text row.
+  const cutRow = Math.round(info.cutCss * 2);
+  assert.equal(isTextRow(cutRow), false, 'cut must land on a blank row');
+  // contentBottom should roughly match the last text row.
+  assert.ok(Math.abs(info.contentBottomCss - (height - 1) / 2) < 40);
+});
+
+test('assemblePdf scales a short page image to its own aspect ratio', async () => {
+  const { assemblePdf } = plugin.__test;
+  const shortPage = { bytes: new Uint8Array([0xff, 0xd8, 0xff, 0xd9]), width: 1588, height: 800 };
+  const text = await assemblePdf([shortPage]).text();
+  const content = /q 595 0 0 ([\d.]+) 0 ([\d.]+) cm \/Im0 Do Q/.exec(text);
+  assert.ok(content, 'content stream present');
+  const drawnHeight = Number(content[1]);
+  const yOffset = Number(content[2]);
+  assert.ok(drawnHeight < 842 && drawnHeight > 0);
+  assert.ok(Math.abs(drawnHeight + yOffset - 842) < 0.01);
+});

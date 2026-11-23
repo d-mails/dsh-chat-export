@@ -1,0 +1,142 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+
+import {
+  createBuildHandler,
+  createSessionsHandler,
+  createTurnsHandler,
+  isTrustedRequest,
+  selectEntries,
+} from '../src/production.js';
+
+function makeRequest(body, { method = 'POST', origin = 'http://127.0.0.1:57023', host = '127.0.0.1:57023', crossSite } = {}) {
+  const payload = Buffer.from(JSON.stringify(body ?? {}), 'utf8');
+  return {
+    method,
+    headers: {
+      host,
+      origin,
+      'content-type': 'application/json',
+      ...(crossSite ? { 'sec-fetch-site': 'cross-site' } : {}),
+    },
+    async *[Symbol.asyncIterator]() {
+      yield payload;
+    },
+  };
+}
+
+function makeResponse() {
+  return {
+    status: null,
+    headers: null,
+    body: '',
+    writeHead(status, headers) { this.status = status; this.headers = headers; },
+    end(body) { this.body = body ?? ''; },
+  };
+}
+
+function sampleSnapshot(sessionId) {
+  const ev = (type, data, extra = {}) => ({ type, seq: 0, time: 0, data, ...extra });
+  return {
+    session: { id: sessionId },
+    events: [
+      ev('session/title', { title: '真实对话' }),
+      ev('turn/start', { turn: 1 }),
+      ev('user/message', { role: 'user', source: { kind: 'user' }, content: [{ type: 'text', text: '问一下 Q' }] }, { surfaceOp: 'append' }),
+      ev('assistant/message', { turn: 1, step: 1, message: { role: 'assistant', source: { kind: 'model' }, content: [{ type: 'reasoning', text: '想' }, { type: 'text', text: '回答 A' }] } }, { surfaceOp: 'append' }),
+      ev('turn/end', { turn: 1, reason: { kind: 'completed' } }),
+    ],
+  };
+}
+
+test('trust fence accepts same-origin and rejects cross-site / bad origin', () => {
+  assert.equal(isTrustedRequest(makeRequest({})), true);
+  assert.equal(isTrustedRequest(makeRequest({}, { crossSite: true })), false);
+  assert.equal(isTrustedRequest(makeRequest({}, { origin: 'http://evil.example' })), false);
+  // Non-loopback hosts are rejected unless explicitly trusted.
+  const nonLoopback = { host: 'evil.example:8080', origin: 'http://evil.example:8080' };
+  assert.equal(isTrustedRequest(makeRequest({}, nonLoopback)), false);
+  assert.equal(isTrustedRequest(makeRequest({}, nonLoopback), ['evil.example:8080']), true);
+  const noHost = { method: 'POST', headers: { origin: 'http://127.0.0.1:57023' }, async *[Symbol.asyncIterator]() {} };
+  assert.equal(isTrustedRequest(noHost), false);
+});
+
+test('build handler returns markdown, html and fragment', async () => {
+  const handler = createBuildHandler({ readSession: async (id) => sampleSnapshot(id), onError: () => {} });
+  const res = makeResponse();
+  await handler(makeRequest({ sessionId: 'sess-1' }), res);
+  assert.equal(res.status, 200);
+  const value = JSON.parse(res.body);
+  assert.equal(value.title, '真实对话');
+  assert.ok(value.markdown.includes('回答 A'));
+  assert.ok(value.markdown.includes('# 真实对话'));
+  assert.ok(value.html.startsWith('<!DOCTYPE html>'));
+  assert.ok(typeof value.fragment.bodyHtml === 'string');
+  assert.ok(!value.markdown.includes('想')); // reasoning excluded by default
+  assert.ok(value.fileStem.includes('--'));
+});
+
+test('build handler includes reasoning when asked and honours selection', async () => {
+  const handler = createBuildHandler({ readSession: async (id) => sampleSnapshot(id), onError: () => {} });
+  const res = makeResponse();
+  await handler(makeRequest({ sessionId: 'sess-1', includeReasoning: true }), res);
+  const value = JSON.parse(res.body);
+  assert.ok(value.markdown.includes('Thinking'));
+  assert.ok(value.markdown.includes('想'));
+
+  const all = selectEntries([{ a: 1 }, { a: 2 }], { exclude: [1], count: 2 });
+  assert.equal(all.length, 1);
+});
+
+test('build handler can ignore questioner content', async () => {
+  const handler = createBuildHandler({ readSession: async (id) => sampleSnapshot(id), onError: () => {} });
+  const res = makeResponse();
+  await handler(makeRequest({ sessionId: 'sess-1', ignoreQuestions: true }), res);
+  const value = JSON.parse(res.body);
+  assert.ok(value.markdown.includes('回答 A'));
+  assert.ok(!value.markdown.includes('问一下 Q'));
+  assert.ok(!value.html.includes('<article class="dsh-msg dsh-msg-human"'));
+});
+
+test('turns handler returns previews with reasoning/tool flags', async () => {
+  const handler = createTurnsHandler({ readSession: async (id) => sampleSnapshot(id), onError: () => {} });
+  const res = makeResponse();
+  await handler(makeRequest({ sessionId: 'sess-1' }), res);
+  const value = JSON.parse(res.body);
+  assert.equal(value.turns.length, 1);
+  assert.equal(value.turns[0].hasReasoning, true);
+  assert.equal(value.turns[0].hasTools, false);
+  assert.ok(value.turns[0].human.includes('问一下'));
+});
+
+test('sessions handler lists non-subagent sessions with titles', async () => {
+  const records = [
+    { header: { id: 's1', createdAt: 100 } },
+    { header: { id: 's2', createdAt: 90, origin: 'subagent' } },
+  ];
+  const handler = createSessionsHandler({
+    listSessions: async () => records,
+    readTitleSnapshots: async (ids) => ids.map((id) => ({
+      sessionId: id,
+      status: 'fulfilled',
+      value: { session: { id }, title: { title: id === 's1' ? '标题一' : '标题二' } },
+    })),
+    onError: () => {},
+  });
+  const res = makeResponse();
+  await handler(makeRequest({}), res);
+  const value = JSON.parse(res.body);
+  assert.equal(value.sessions.length, 1);
+  assert.equal(value.sessions[0].sessionId, 's1');
+  assert.equal(value.sessions[0].title, '标题一');
+});
+
+test('handlers reject wrong method, content type and bad body', async () => {
+  const handler = createBuildHandler({ readSession: async (id) => sampleSnapshot(id), onError: () => {} });
+  let res = makeResponse();
+  await handler(makeRequest({}, { method: 'GET' }), res);
+  assert.equal(res.status, 405);
+  res = makeResponse();
+  await handler(makeRequest({ sessionId: '' }), res);
+  assert.equal(res.status, 400);
+});
