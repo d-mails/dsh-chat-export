@@ -1,68 +1,70 @@
 # DSH Chat Export
 
-把当前会话或任意历史对话导出为 **Markdown / HTML / PDF**，全程在本地浏览器完成，不上传任何内容。
+English | [简体中文](README.zh.md)
 
-## 功能
+Export the current conversation — or any historical session — to **Markdown / HTML / PDF**. Everything runs locally in your browser; nothing is uploaded.
 
-- **选择对话导出**：标题栏「导出对话」按钮打开对话框，默认当前会话，也可从下拉列表选择任意历史会话。
-- **三种格式**：Markdown、HTML（带样式的独立网页）、PDF（浏览器端光栅化生成，支持中文，无需打印对话框）。
-- **思考过程可选**：默认忽略对话中的思考（reasoning）内容；勾选「包含思考过程」后以可折叠区块导出。
-- **工具调用可选**：默认忽略工具调用与结果；勾选后导出每个工具调用的参数与结果（结果超长会自动截断）。
-- **回合选择**：列出全部问答回合并默认全选，可逐条勾选或全选/清空，只导出需要的部分。
-- **忽略提问内容**：可勾选只导出助手回复，不导出用户提问（可按需叠加思考/工具）。
-- **本地安全**：插件通过同源 Host 路由读取 `sessionQuery`，数据只在本地进程与本地浏览器之间流转。
+## Features
 
-## 安装
+- **Pick any conversation**: the “Export chat” button in the session header opens a dialog; it defaults to the current session and lets you choose any other session from a dropdown.
+- **Three formats**: Markdown, HTML (a self-contained styled page), and PDF (rasterized in the browser, CJK-friendly, no print dialog).
+- **Thinking optional**: reasoning is skipped by default; enable “Include thinking” to export it in collapsible blocks.
+- **Tool calls optional**: tool calls and results are skipped by default; enable “Include tool calls” to export each call’s arguments and result (long results are truncated).
+- **Turn selection**: lists every Q&A turn, all selected by default; tick/untick individual turns or select all/clear.
+- **Ignore the questioner**: option to export only assistant replies, dropping user prompts (composable with thinking/tools).
+- **Local-only security**: the plugin reads `sessionQuery` through same-origin host routes; data moves only between the local host process and the local browser.
 
-前置：DeepSeek Harness Web（桌面版或 `dsh web`），Node.js ≥ 20。
+## Install
 
-从 GitHub 安装：
+Requires DeepSeek Harness Web (desktop app or `dsh web`) and Node.js ≥ 20.
+
+From GitHub:
 
 ```bash
 dsh plugin add d-mails/dsh-chat-export --profile web
 ```
 
-本地目录安装：
+From a local checkout:
 
 ```bash
 dsh plugin add ./dsh-chat-export --profile web
 ```
 
-安装后重启 `dsh web`（或重新打开 DSH），在任意对话标题栏右侧即可看到「导出对话」。
+Restart `dsh web` (or reopen DSH) after installing; the “Export chat” button appears at the right of the session header.
 
-## 使用
+## Usage
 
-1. 打开任意对话，在标题栏右侧点击 **导出对话**。
-2. 选择对话、格式，按需勾选「包含思考过程」「包含工具调用与结果」「忽略提问内容」。
-3. 在回合列表中取消不需要的回合（默认全部选中）。
-4. 点击 **导出**，浏览器下载 `<标题>--<会话短ID>.<md|html|pdf>`。
+1. Open any conversation and click **Export chat** in the header.
+2. Choose the conversation and format; toggle “Include thinking”, “Include tool calls” and “Ignore questioner content” as needed.
+3. Untick the turns you do not want (all are selected by default).
+4. Click **Export**; the browser downloads `<title>--<short-session-id>.<md|html|pdf>`.
 
-## 兼容性
+## Compatibility
 
-- 在 `@deepseek-ai/dsh@0.2.2-rc.3`（Web 端）上开发与验证。
-- DSH 处于快速迭代期，插件 API 可能变化；升级 DSH 后若失效，请对照新版 `sessionQuery` / `webServer` 接口调整。
+- Developed and verified on `@deepseek-ai/dsh@0.2.2-rc.3` (Web).
+- DSH evolves quickly and plugin APIs may change. If the plugin breaks after a DSH upgrade, check the current `sessionQuery` / `webServer` contracts.
 
-## 说明与限制
+## Notes and limitations
 
-- PDF 由浏览器把导出 HTML 光栅化为**整页图片**后组装为多页 PDF；分页在真实渲染图里寻找空白行带并在其中切分，不会把正文行截断。因为是图片，PDF 文字**不可选中/搜索**，文件也较大；生成耗时随对话长度增加（长文可能数十页），当前无进度条/取消。
-- 若当前环境无法直接生成 PDF（或对话过长），会自动打开打印视图让你「另存为 PDF」，并保留 HTML 兜底下载。
-- 只导出用户消息与每轮最终的助手回复；中间的多次助手消息不单独成段（其思考/工具调用在对应开关打开时并入该回合）。
-- 图片消息以占位文字表示，不内嵌图片；Markdown 转换不支持数学公式、复杂嵌套列表等高级语法。
-- 会话列表最多显示 300 个会话，不包含 subagent 子会话。
-- 「忽略提问内容」是全局开关，不是逐回合开关。
+- PDF export rasterizes the exported HTML into a multi-page PDF of **full-page images**. Page breaks are chosen inside whitespace bands of the real rendering, so text lines are never cut. Because pages are images, PDF text is **not selectable/searchable** and files are larger; generation time grows with conversation length (long chats can be dozens of pages), and there is currently no progress bar or cancel.
+- If the environment cannot generate the PDF directly (or the conversation is too long), it opens a print view so you can “Save as PDF”, and keeps an HTML fallback download.
+- Only human messages and each turn’s final assistant reply are exported; intermediate assistant steps are not separate sections (their thinking/tool calls are folded into the turn when those options are enabled).
+- Image messages are represented as placeholder text; images are not embedded. The Markdown converter does not support math, deeply nested lists, or other advanced syntax.
+- The session list shows at most 300 sessions and excludes subagent sessions.
+- “Ignore questioner content” is a global toggle, not a per-turn option.
 
-## 隐私
+## Privacy
 
-导出完全本地：插件不联网、不写远程存储、无遥测。所有对话内容仅在本地 Host 进程与发起导出的本地浏览器之间传递。
+Export is fully local: the plugin makes no network calls, writes no remote storage, and has no telemetry. Conversation content moves only between the local host process and the local browser that requested it.
 
-## 开发
+## Development
 
-零运行时依赖，纯 ESM。Host 端代码在 `index.js` 与 `src/`，浏览器端在 `client.js`。
+Zero runtime dependencies, pure ESM. Host code lives in `index.js` and `src/`; the browser half is `client.js`.
 
 ```bash
 node --test test/core.test.js test/client.test.js test/handlers.test.js
 ```
 
-## 许可
+## License
 
 [MIT](LICENSE)
