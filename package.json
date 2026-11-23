@@ -1,6 +1,6 @@
 {
   "name": "dsh-chat-export",
-  "version": "1.7.0",
+  "version": "1.7.1",
   "description": "Export a DeepSeek Harness conversation to Markdown, HTML, or PDF. Choose any session, pick the turns to keep, ignore the questioner's messages, and optionally include thinking and tool calls.",
   "license": "MIT",
   "author": "dsh-chat-export contributors",

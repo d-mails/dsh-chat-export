@@ -44,7 +44,7 @@ function inline(raw) {
 
   // Images: keep the alt text, never embed remote sources.
   text = text.replace(/!\[([^\]]*)\]\(([^)\s]*)(?:\s+"[^"]*")?\)/gu, (_match, alt) =>
-    stash(`<span class="dsh-img-note">[图片${alt ? `：${escapeHtml(alt)}` : ''}]</span>`));
+    stash(`<span class="dsh-img-note">[Image${alt ? `: ${escapeHtml(alt)}` : ''}]</span>`));
 
   // Links.
   text = text.replace(/\[([^\]]+)\]\(([^)\s]*)(?:\s+"[^"]*")?\)/gu, (match, label, url) => {

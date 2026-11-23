@@ -104,12 +104,12 @@ export function expandUiFences(text) {
     try {
       spec = JSON.parse(body.trim());
     } catch {
-      return '> _[交互组件：内容无法解析]_';
+      return '> _[Interactive component: content could not be parsed]_';
     }
     const markdown = uiSpecToMarkdown(spec);
     if (markdown.trim() !== '') return markdown;
     const title = spec && typeof spec.title === 'string' ? `：${spec.title}` : '';
-    return `> _[交互组件${title}]_`;
+    return `> _[Interactive component${title}]_`;
   });
 }
 

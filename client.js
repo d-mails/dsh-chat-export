@@ -1,7 +1,7 @@
 /*
  * DSH Chat Export client module.
  *
- * Adds an additive "导出对话" action to the Session header. A single dialog
+ * Adds an additive "Export chat" action to the Session header. A single dialog
  * lets the user pick any conversation, choose the format (Markdown / HTML /
  * PDF), toggle thinking and tool-call inclusion, and pick whole turns. Export
  * is local: the browser reads the same-origin host routes and saves the file.

@@ -175,7 +175,7 @@ test('dsh-ui fences become readable tables instead of raw JSON', () => {
 
 test('unparseable dsh-ui fence degrades to a note', () => {
   const out = expandUiFences('```dsh-ui\n{not json}\n```');
-  assert.ok(out.includes('交互组件'));
+  assert.ok(out.includes('Interactive component'));
   assert.ok(!out.includes('dsh-ui'));
 });
 
