@@ -28,7 +28,7 @@ function safeUrl(url) {
 
 const PLACEHOLDER = '\u0000';
 
-function inline(raw) {
+function inline(raw, lang = 'en') {
   if (raw === '') return '';
   const stored = [];
   const stash = (html) => {
@@ -44,13 +44,13 @@ function inline(raw) {
 
   // Images: keep the alt text, never embed remote sources.
   text = text.replace(/!\[([^\]]*)\]\(([^)\s]*)(?:\s+"[^"]*")?\)/gu, (_match, alt) =>
-    stash(`<span class="dsh-img-note">[Image${alt ? `: ${escapeHtml(alt)}` : ''}]</span>`));
+    stash(`<span class="dsh-img-note">${lang === 'zh' ? `[图片${alt ? `：${escapeHtml(alt)}` : ''}]` : `[Image${alt ? `: ${escapeHtml(alt)}` : ''}]`}</span>`));
 
   // Links.
   text = text.replace(/\[([^\]]+)\]\(([^)\s]*)(?:\s+"[^"]*")?\)/gu, (match, label, url) => {
     const href = safeUrl(url);
     if (href === null) return stash(escapeHtml(label));
-    return stash(`<a href="${escapeAttr(href)}" target="_blank" rel="noopener noreferrer">${inline(label)}</a>`);
+    return stash(`<a href="${escapeAttr(href)}" target="_blank" rel="noopener noreferrer">${inline(label, lang)}</a>`);
   });
 
   text = escapeHtml(text);
@@ -128,7 +128,7 @@ function startsBlock(line, next) {
   return false;
 }
 
-export function markdownToHtml(raw) {
+export function markdownToHtml(raw, lang = 'en') {
   if (typeof raw !== 'string' || raw === '') return '';
   const lines = raw.replace(/\r\n?/gu, '\n').split('\n');
   const out = [];
@@ -159,7 +159,7 @@ export function markdownToHtml(raw) {
     const heading = HEADING.exec(line);
     if (heading !== null) {
       const level = heading[1].length;
-      out.push(`<h${level}>${inline(heading[2])}</h${level}>`);
+      out.push(`<h${level}>${inline(heading[2], lang)}</h${level}>`);
       i++;
       continue;
     }
@@ -176,7 +176,7 @@ export function markdownToHtml(raw) {
         body.push(lines[i].replace(BLOCKQUOTE, ''));
         i++;
       }
-      out.push(`<blockquote>${markdownToHtml(body.join('\n'))}</blockquote>`);
+      out.push(`<blockquote>${markdownToHtml(body.join('\n'), lang)}</blockquote>`);
       continue;
     }
 
@@ -192,7 +192,7 @@ export function markdownToHtml(raw) {
       const cell = (tag, value, index) => {
         const a = align[index];
         const style = a ? ` style="text-align:${a}"` : '';
-        return `<${tag}${style}>${inline(value ?? '')}</${tag}>`;
+        return `<${tag}${style}>${inline(value ?? '', lang)}</${tag}>`;
       };
       const head = `<thead><tr>${header.map((value, index) => cell('th', value, index)).join('')}</tr></thead>`;
       const body = rows.map((row) => `<tr>${header.map((_value, index) => cell('td', row[index] ?? '', index)).join('')}</tr>`).join('');
@@ -220,7 +220,7 @@ export function markdownToHtml(raw) {
         break;
       }
       const tag = ordered ? 'ol' : 'ul';
-      out.push(`<${tag}>${items.map((value) => `<li>${inline(value)}</li>`).join('')}</${tag}>`);
+      out.push(`<${tag}>${items.map((value) => `<li>${inline(value, lang)}</li>`).join('')}</${tag}>`);
       continue;
     }
 
@@ -231,7 +231,7 @@ export function markdownToHtml(raw) {
       paragraph.push(lines[i]);
       i++;
     }
-    out.push(`<p>${inline(paragraph.join('\n'))}</p>`);
+    out.push(`<p>${inline(paragraph.join('\n'), lang)}</p>`);
   }
 
   return out.join('\n');

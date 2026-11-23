@@ -108,9 +108,11 @@ test('translates UI strings for the active DSH locale', () => {
     slots: { inject(_owner, fn) { fn(); }, register() { return () => {}; } },
   };
   plugin.apply(ctx);
-  const { translate } = plugin.__test;
+  const { translate, currentLang } = plugin.__test;
+  assert.equal(currentLang(), 'en');
   assert.equal(translate('btnExport'), 'Export chat');
   active = 'zh';
+  assert.equal(currentLang(), 'zh');
   assert.equal(translate('btnExport'), '导出对话');
 });
 

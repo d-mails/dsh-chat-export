@@ -13,7 +13,7 @@ Export the current conversation — or any historical session — to **Markdown 
 - **Turn selection**: lists every Q&A turn, all selected by default; tick/untick individual turns or select all/clear.
 - **Ignore the questioner**: option to export only assistant replies, dropping user prompts (composable with thinking/tools).
 - **Local-only security**: the plugin reads `sessionQuery` through same-origin host routes; data moves only between the local host process and the local browser.
-- **Bilingual UI**: follows the DSH locale — English and 简体中文.
+- **Bilingual UI**: follows the DSH locale — English and 简体中文, for both the interface and the exported labels.
 
 ## Install
 

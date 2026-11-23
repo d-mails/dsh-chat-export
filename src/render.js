@@ -8,8 +8,48 @@
 
 import { markdownToHtml } from './md-html.js';
 
-const INCOMPLETE_MARKER = '> Response incomplete.';
 const FALLBACK_TITLE = 'DSH Conversation';
+const LABELS = {
+  en: {
+    human: 'Human',
+    assistant: 'Assistant',
+    thinking: 'Thinking',
+    toolCall: 'Tool call',
+    arguments: 'Arguments',
+    result: 'Result',
+    resultError: 'Result (error)',
+    resultNotCaptured: 'Result: (not captured)',
+    incompleteMarkdown: '> Response incomplete.',
+    incompleteHtml: 'Response incomplete.',
+    empty: 'No conversation content to export.',
+    unparsed: '> _[Interactive component: content could not be parsed]_',
+    interactiveTitle: (title) => `> _[Interactive component${title ? ': ' + title : ''}]_`,
+    keyValue: (key, value) => `- **${key}**: ${value}`,
+    stat: (label, value) => `- **${label}**: ${value}`,
+    htmlLang: 'en',
+  },
+  zh: {
+    human: '用户',
+    assistant: '助手',
+    thinking: '思考过程',
+    toolCall: '工具调用',
+    arguments: '参数',
+    result: '结果',
+    resultError: '结果（错误）',
+    resultNotCaptured: '结果：（未捕获）',
+    incompleteMarkdown: '> 回复未完成。',
+    incompleteHtml: '回复未完成。',
+    empty: '没有可导出的对话内容。',
+    unparsed: '> _[交互组件：内容无法解析]_',
+    interactiveTitle: (title) => `> _[交互组件${title ? '：' + title : ''}]_`,
+    keyValue: (key, value) => `- **${key}**：${value}`,
+    stat: (label, value) => `- **${label}**：${value}`,
+    htmlLang: 'zh-CN',
+  },
+};
+function labelsFor(lang) {
+  return LABELS[lang === 'zh' ? 'zh' : 'en'];
+}
 
 function openingFence(line) {
   const match = /^ {0,3}(`{3,}|~{3,})(.*)$/u.exec(line);
@@ -35,8 +75,8 @@ export function protectMarkdownFences(message) {
   return `${message}${newline}${open.character.repeat(open.length)}`;
 }
 
-function roleSection(role, message) {
-  return `> **${role}**\n\n${protectMarkdownFences(expandUiFences(message))}`;
+function roleSection(roleLabel, message, lang) {
+  return `> **${roleLabel}**\n\n${protectMarkdownFences(expandUiFences(message, lang))}`;
 }
 
 function mdCell(value) {
@@ -52,8 +92,9 @@ function uiTable(columns, rows) {
   return body === '' ? `${head}\n${sep}` : `${head}\n${sep}\n${body}`;
 }
 
-function uiSpecToMarkdown(spec) {
+function uiSpecToMarkdown(spec, lang) {
   if (spec === null || typeof spec !== 'object') return '';
+  const L = labelsFor(lang);
   const out = [];
   if (typeof spec.title === 'string' && spec.title.trim() !== '') out.push(`**${spec.title.trim()}**`);
   const walk = (items) => {
@@ -65,7 +106,7 @@ function uiSpecToMarkdown(spec) {
           if (Array.isArray(item.columns) && Array.isArray(item.rows)) out.push(uiTable(item.columns, item.rows));
           break;
         case 'keyvalue':
-          if (Array.isArray(item.pairs)) out.push(item.pairs.map((pair) => `- **${mdCell(pair?.key)}**：${mdCell(pair?.value)}`).join('\n'));
+          if (Array.isArray(item.pairs)) out.push(item.pairs.map((pair) => L.keyValue(mdCell(pair?.key), mdCell(pair?.value))).join('\n'));
           break;
         case 'list':
           if (Array.isArray(item.items)) out.push(item.items.map((entry) => `- ${mdCell(typeof entry === 'string' ? entry : (entry?.content ?? entry?.label ?? entry?.title ?? ''))}`).join('\n'));
@@ -83,7 +124,7 @@ function uiSpecToMarkdown(spec) {
           out.push(typeof item.label === 'string' && item.label.trim() !== '' ? `*${item.label.trim()}*` : '---');
           break;
         case 'stat':
-          if (item.label !== undefined) out.push(`- **${mdCell(item.label)}**：${mdCell(item.value)}`);
+          if (item.label !== undefined) out.push(L.stat(mdCell(item.label), mdCell(item.value)));
           break;
         default:
           if (typeof item.content === 'string' && item.content.trim() !== '') out.push(item.content);
@@ -97,19 +138,20 @@ function uiSpecToMarkdown(spec) {
 }
 
 /** Replace GenUI ```dsh-ui fences (rendered as tables/cards in the app) with readable Markdown. */
-export function expandUiFences(text) {
+export function expandUiFences(text, lang = 'en') {
   if (typeof text !== 'string' || !text.includes('```dsh-ui')) return text;
+  const L = labelsFor(lang);
   return text.replace(/```dsh-ui[^\n]*\n([\s\S]*?)```/gu, (_match, body) => {
     let spec;
     try {
       spec = JSON.parse(body.trim());
     } catch {
-      return '> _[Interactive component: content could not be parsed]_';
+      return L.unparsed;
     }
-    const markdown = uiSpecToMarkdown(spec);
+    const markdown = uiSpecToMarkdown(spec, lang);
     if (markdown.trim() !== '') return markdown;
-    const title = spec && typeof spec.title === 'string' ? `：${spec.title}` : '';
-    return `> _[Interactive component${title}]_`;
+    const title = spec && typeof spec.title === 'string' ? spec.title.trim() : '';
+    return L.interactiveTitle(title);
   });
 }
 
@@ -117,17 +159,18 @@ function detailsSection(summary, body) {
   return `<details>\n<summary>${summary}</summary>\n\n${protectMarkdownFences(body)}\n\n</details>`;
 }
 
-function toolSection(tool) {
+function toolSection(tool, lang) {
+  const L = labelsFor(lang);
   const parts = [`\`${tool.name}\``];
   if (tool.arguments && tool.arguments.trim() !== '') {
-    parts.push(`Arguments:\n\n\`\`\`json\n${tool.arguments}\n\`\`\``);
+    parts.push(`${L.arguments}:\n\n\`\`\`json\n${tool.arguments}\n\`\`\``);
   }
   if (tool.result && tool.result.trim() !== '') {
-    parts.push(`Result${tool.isError ? ' (error)' : ''}:\n\n\`\`\`text\n${tool.result}\n\`\`\``);
+    parts.push(`${tool.isError ? L.resultError : L.result}:\n\n\`\`\`text\n${tool.result}\n\`\`\``);
   } else if (tool.result === null) {
-    parts.push('Result: (not captured)');
+    parts.push(L.resultNotCaptured);
   }
-  return detailsSection(`Tool call · ${escapeInline(tool.name)}`, parts.join('\n\n'));
+  return detailsSection(`${L.toolCall} · ${escapeInline(tool.name)}`, parts.join('\n\n'));
 }
 
 function escapeInline(value) {
@@ -139,16 +182,17 @@ function escapeInline(value) {
  * @param {string|null} title
  * @returns {string}
  */
-export function renderMarkdown(entries, title = null) {
+export function renderMarkdown(entries, title = null, options = {}) {
+  const L = labelsFor(options.lang);
   const sections = [];
   for (const entry of entries) {
     const hasTools = (entry.tools ?? []).length > 0;
     if ((entry.humans?.length ?? 0) === 0 && entry.assistant === null && !entry.reasoning && !hasTools) continue;
-    for (const human of entry.humans) sections.push(roleSection('Human', human));
-    if (entry.reasoning) sections.push(detailsSection('Thinking', entry.reasoning));
-    for (const tool of entry.tools ?? []) sections.push(toolSection(tool));
-    if (entry.assistant !== null) sections.push(roleSection('Assistant', entry.assistant));
-    else sections.push(INCOMPLETE_MARKER);
+    for (const human of entry.humans) sections.push(roleSection(L.human, human, options.lang));
+    if (entry.reasoning) sections.push(detailsSection(L.thinking, entry.reasoning));
+    for (const tool of entry.tools ?? []) sections.push(toolSection(tool, options.lang));
+    if (entry.assistant !== null) sections.push(roleSection(L.assistant, entry.assistant, options.lang));
+    else sections.push(L.incompleteMarkdown);
   }
   const documentTitle = title ?? FALLBACK_TITLE;
   return sections.length > 0
@@ -202,44 +246,45 @@ details.dsh-details[open] > summary { margin-bottom: 8px; }
 }
 `.trim();
 
-function htmlParts(entries, title) {
+function htmlParts(entries, title, options = {}) {
+  const L = labelsFor(options.lang);
   const body = [];
   const documentTitle = title ?? FALLBACK_TITLE;
   for (const entry of entries) {
     const hasTools = (entry.tools ?? []).length > 0;
     if ((entry.humans?.length ?? 0) === 0 && entry.assistant === null && !entry.reasoning && !hasTools) continue;
     for (const human of entry.humans) {
-      body.push(`<article class="dsh-msg dsh-msg-human"><div class="dsh-role">Human</div><div class="dsh-md">${markdownToHtml(expandUiFences(human))}</div></article>`);
+      body.push(`<article class="dsh-msg dsh-msg-human"><div class="dsh-role">${L.human}</div><div class="dsh-md">${markdownToHtml(expandUiFences(human, options.lang), options.lang)}</div></article>`);
     }
     if (entry.reasoning) {
-      body.push(`<details class="dsh-details"><summary>Thinking</summary><div class="dsh-md">${markdownToHtml(entry.reasoning)}</div></details>`);
+      body.push(`<details class="dsh-details"><summary>${L.thinking}</summary><div class="dsh-md">${markdownToHtml(entry.reasoning, options.lang)}</div></details>`);
     }
     for (const tool of entry.tools ?? []) {
       const argHtml = tool.arguments && tool.arguments.trim() !== ''
-        ? `<p><strong>Arguments</strong></p><pre class="dsh-code"><code class="language-json">${escapeInline(tool.arguments)}</code></pre>`
+        ? `<p><strong>${L.arguments}</strong></p><pre class="dsh-code"><code class="language-json">${escapeInline(tool.arguments)}</code></pre>`
         : '';
       const resultHtml = tool.result && tool.result.trim() !== ''
-        ? `<p><strong>Result${tool.isError ? ' (error)' : ''}</strong></p><pre class="dsh-code"><code>${escapeInline(tool.result)}</code></pre>`
+        ? `<p><strong>${tool.isError ? L.resultError : L.result}</strong></p><pre class="dsh-code"><code>${escapeInline(tool.result)}</code></pre>`
         : '';
-      body.push(`<details class="dsh-details"><summary>Tool call · ${escapeInline(tool.name)}</summary>${argHtml}${resultHtml}</details>`);
+      body.push(`<details class="dsh-details"><summary>${L.toolCall} · ${escapeInline(tool.name)}</summary>${argHtml}${resultHtml}</details>`);
     }
     if (entry.assistant !== null) {
-      body.push(`<article class="dsh-msg dsh-msg-assistant"><div class="dsh-role">Assistant</div><div class="dsh-md">${markdownToHtml(expandUiFences(entry.assistant))}</div></article>`);
+      body.push(`<article class="dsh-msg dsh-msg-assistant"><div class="dsh-role">${L.assistant}</div><div class="dsh-md">${markdownToHtml(expandUiFences(entry.assistant, options.lang), options.lang)}</div></article>`);
     } else {
-      body.push('<p class="dsh-incomplete">Response incomplete.</p>');
+      body.push(`<p class="dsh-incomplete">${L.incompleteHtml}</p>`);
     }
   }
   return {
     documentTitle,
     innerHtml: `<div class="dsh-export-doc"><h1 class="dsh-export-title">${escapeInline(documentTitle)}</h1>${body.join('\n')}</div>`,
-    emptyHtml: `<div class="dsh-export-doc"><h1 class="dsh-export-title">${escapeInline(documentTitle)}</h1><p class="dsh-empty">No conversation content to export.</p></div>`,
+    emptyHtml: `<div class="dsh-export-doc"><h1 class="dsh-export-title">${escapeInline(documentTitle)}</h1><p class="dsh-empty">${L.empty}</p></div>`,
     hasContent: entries.length > 0,
   };
 }
 
 /** Inner document markup only, for the client-side PDF rasterizer. */
-export function renderHtmlFragment(entries, title) {
-  const parts = htmlParts(entries, title);
+export function renderHtmlFragment(entries, title, options = {}) {
+  const parts = htmlParts(entries, title, options);
   return {
     title: parts.documentTitle,
     bodyHtml: parts.hasContent ? parts.innerHtml : parts.emptyHtml,
@@ -248,11 +293,12 @@ export function renderHtmlFragment(entries, title) {
 }
 
 /** Complete standalone HTML document for a downloaded file. */
-export function renderHtmlDocument(entries, title) {
-  const parts = htmlParts(entries, title);
+export function renderHtmlDocument(entries, title, options = {}) {
+  const L = labelsFor(options.lang);
+  const parts = htmlParts(entries, title, options);
   const inner = parts.hasContent ? parts.innerHtml : parts.emptyHtml;
   return `<!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="${L.htmlLang}">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">

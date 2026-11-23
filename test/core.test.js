@@ -110,6 +110,11 @@ test('links allow http and reject javascript urls', () => {
   assert.ok(!/href="javascript:/iu.test(bad));
 });
 
+test('image note localizes', () => {
+  assert.ok(markdownToHtml('![alt](u)').includes('[Image: alt]'));
+  assert.ok(markdownToHtml('![alt](u)', 'zh').includes('[图片：alt]'));
+});
+
 test('renderHtmlDocument is a full document and renderHtmlFragment returns parts', () => {
   const { entries } = extractConversation(sampleEvents(), { includeReasoning: true, includeTools: true });
   const doc = renderHtmlDocument(entries, '测试');

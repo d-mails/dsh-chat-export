@@ -295,6 +295,7 @@ export function createBuildHandler({ readSession, trustedHosts = [], onError = (
     const includeReasoning = value.includeReasoning === true;
     const includeTools = value.includeTools === true;
     const ignoreQuestions = value.ignoreQuestions === true;
+    const lang = value.lang === 'zh' ? 'zh' : 'en';
     const snapshot = canonicalSnapshot(sessionId, await readSession(sessionId));
     const { title, entries, stats } = extractConversation(snapshot.events, { includeReasoning, includeTools });
     let selected = selectEntries(entries, value.selection);
@@ -305,9 +306,9 @@ export function createBuildHandler({ readSession, trustedHosts = [], onError = (
       sessionId,
       title: title ?? null,
       fileStem: fileStem(sessionId, title),
-      markdown: renderMarkdown(selected, title),
-      html: renderHtmlDocument(selected, title),
-      fragment: renderHtmlFragment(selected, title),
+      markdown: renderMarkdown(selected, title, { lang }),
+      html: renderHtmlDocument(selected, title, { lang }),
+      fragment: renderHtmlFragment(selected, title, { lang }),
       stats,
     });
   });

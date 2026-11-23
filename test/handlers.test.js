@@ -98,6 +98,20 @@ test('build handler can ignore questioner content', async () => {
   assert.ok(!value.html.includes('<article class="dsh-msg dsh-msg-human"'));
 });
 
+test('build handler localizes export labels by lang', async () => {
+  const handler = createBuildHandler({ readSession: async (id) => sampleSnapshot(id), onError: () => {} });
+  const zhRes = makeResponse();
+  await handler(makeRequest({ sessionId: 'sess-1', lang: 'zh' }), zhRes);
+  const zh = JSON.parse(zhRes.body);
+  assert.ok(zh.markdown.includes('> **用户**'));
+  assert.ok(zh.markdown.includes('> **助手**'));
+  assert.ok(zh.html.includes('dsh-role">用户<'));
+  assert.ok(zh.html.includes('<html lang="zh-CN">'));
+  const enRes = makeResponse();
+  await handler(makeRequest({ sessionId: 'sess-1' }), enRes);
+  assert.ok(JSON.parse(enRes.body).markdown.includes('> **Human**'));
+});
+
 test('turns handler returns previews with reasoning/tool flags', async () => {
   const handler = createTurnsHandler({ readSession: async (id) => sampleSnapshot(id), onError: () => {} });
   const res = makeResponse();

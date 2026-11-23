@@ -130,6 +130,14 @@ window.__ModuleLoader__.load({
       if (i18nLocale && typeof i18nLocale.getSnapshot === "function") return i18nLocale.getSnapshot();
       return I18N_EMPTY_SNAPSHOT;
     }
+    function currentLang() {
+      try {
+        const snapshot = i18nLocale && typeof i18nLocale.getLocale === "function" ? i18nLocale.getLocale() : null;
+        return detectLang((snapshot && snapshot.active) || i18nFallbackLang);
+      } catch {
+        return i18nFallbackLang;
+      }
+    }
 
     const SESSIONS_PATH = '/api/chat-export.sessions';
     const TURNS_PATH = '/api/chat-export.turns';
@@ -562,6 +570,7 @@ window.__ModuleLoader__.load({
         try {
           const value = await postJson(BUILD_PATH, {
             sessionId: target,
+            lang: currentLang(),
             includeReasoning,
             includeTools,
             ignoreQuestions,
@@ -835,7 +844,7 @@ window.__ModuleLoader__.load({
 
     return {
       inject: ['slots', 'locale'],
-      __test: { assemblePdf, compactSelection, xhtmlBody, analyzePage, i18nDict: I18N_DICT, translate: t },
+      __test: { assemblePdf, compactSelection, xhtmlBody, analyzePage, i18nDict: I18N_DICT, translate: t, currentLang },
       apply(ctx) {
         try {
           const locale = ctx.get?.('locale');
