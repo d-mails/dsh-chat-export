@@ -419,6 +419,25 @@ test('unparseable dsh-ui fence degrades to a note', () => {
   assert.ok(!out.includes('dsh-ui'));
 });
 
+test('dsh-ui cards and nested components export their content', () => {
+  const spec = {
+    title: 'Dashboard',
+    items: [
+      { type: 'card', title: 'Status', items: [
+        { type: 'text', content: 'inside-card' },
+        { type: 'progress', label: 'Done', value: 80 },
+      ] },
+      { type: 'timeline', items: [{ title: 'Started', desc: 'kickoff', time: 'T1' }] },
+    ],
+  };
+  const expanded = expandUiFences('```dsh-ui\n' + JSON.stringify(spec) + '\n```');
+  assert.ok(expanded.includes('inside-card'));
+  assert.ok(expanded.includes('Done'));
+  assert.ok(expanded.includes('80'));
+  assert.ok(expanded.includes('Started'));
+  assert.ok(expanded.includes('T1'));
+});
+
 test('dsh-ui chart fences become a readable table', () => {
   const spec = {
     title: 'Chart',

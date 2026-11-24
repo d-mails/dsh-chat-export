@@ -165,6 +165,86 @@ function uiSpecToMarkdown(spec, lang) {
         case 'stat':
           if (item.label !== undefined) out.push(L.stat(mdCell(item.label), mdCell(item.value)));
           break;
+        case 'progress':
+          if (item.label !== undefined) out.push(`- **${mdCell(item.label)}**: ${mdCell(item.value)}${typeof item.value === 'number' ? '%' : ''}`);
+          break;
+        case 'badge':
+          if (typeof item.label === 'string' && item.label.trim() !== '') out.push(`\`${item.label.trim()}\``);
+          break;
+        case 'breadcrumb':
+          if (Array.isArray(item.items)) out.push(item.items.map((entry) => mdCell(entry)).join(' / '));
+          break;
+        case 'timeline':
+          if (Array.isArray(item.items)) {
+            out.push(item.items.map((entry) => {
+              const time = entry?.time ? ` (${mdCell(entry.time)})` : '';
+              return `- **${mdCell(entry?.title ?? '')}**${time}${entry?.desc ? `: ${mdCell(entry.desc)}` : ''}`;
+            }).join('\n'));
+          }
+          break;
+        case 'diff':
+          if (Array.isArray(item.diffs)) {
+            out.push(item.diffs.map((diff) => `**${mdCell(diff?.path ?? '')}**\n\n${fenceFor(diff?.oldText ?? '', 'diff')}\n\n${fenceFor(diff?.newText ?? '', 'diff')}`).join('\n\n'));
+          }
+          break;
+        case 'json':
+          out.push(fenceFor(JSON.stringify(item.value ?? null, null, 2), 'json'));
+          break;
+        case 'code':
+          if (typeof item.code === 'string') out.push(fenceFor(item.code, typeof item.lang === 'string' ? item.lang : ''));
+          break;
+        case 'image':
+          out.push(`[Image: ${mdCell(item.alt ?? item.src ?? '')}]`);
+          break;
+        case 'image-group':
+          if (Array.isArray(item.items)) out.push(item.items.map((image) => `- [Image: ${mdCell(image?.alt ?? image?.src ?? '')}]`).join('\n'));
+          break;
+        case 'compare':
+          out.push([
+            item.title ? `**${mdCell(item.title)}**` : '',
+            `- Before: ${mdCell(item.before?.label ?? item.before?.src ?? '')}`,
+            `- After: ${mdCell(item.after?.label ?? item.after?.src ?? '')}`,
+          ].filter(Boolean).join('\n'));
+          break;
+        case 'file-tree': {
+          const renderTree = (nodes, depth = 0) => (Array.isArray(nodes) ? nodes : []).flatMap((node) => [
+            `${'  '.repeat(depth)}- ${mdCell(node?.name ?? '')}`,
+            ...renderTree(node?.children, depth + 1),
+          ]);
+          if (Array.isArray(item.items)) out.push(renderTree(item.items).join('\n'));
+          break;
+        }
+        case 'hero':
+          out.push([
+            item.title ? `**${mdCell(item.title)}**` : '',
+            item.subtitle,
+            item.label ? `- **${mdCell(item.label)}**: ${mdCell(item.value)}` : '',
+          ].filter(Boolean).join('\n\n'));
+          break;
+        case 'card':
+        case 'row':
+        case 'col':
+        case 'grid':
+        case 'carousel':
+          if (typeof item.title === 'string' && item.title.trim() !== '') out.push(`**${item.title.trim()}**`);
+          walk(item.items);
+          break;
+        case 'tabs':
+          if (Array.isArray(item.tabs)) {
+            for (const tab of item.tabs) {
+              if (typeof tab?.label === 'string' && tab.label.trim() !== '') out.push(`**${tab.label.trim()}**`);
+              walk(tab?.items);
+            }
+          }
+          break;
+        case 'accordion':
+          if (Array.isArray(item.items)) {
+            for (const section of item.items) {
+              if (typeof section?.title === 'string' && section.title.trim() !== '') out.push(`**${section.title.trim()}**`);
+              walk(section?.items);
+            }
+          }
+          break;
         default:
           if (typeof item.content === 'string' && item.content.trim() !== '') out.push(item.content);
           break;
