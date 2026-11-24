@@ -239,6 +239,24 @@ test('sessions handler lists non-subagent sessions with titles', async () => {
   assert.equal(value.sessions[0].title, '标题一');
 });
 
+test('build handler times out a stalled request body', async () => {
+  const handler = createBuildHandler({
+    readSession: async (id) => sampleSnapshot(id),
+    requestTimeoutMs: 20,
+    onError: () => {},
+  });
+  const request = {
+    method: 'POST',
+    headers: { host: '127.0.0.1:57023', origin: 'http://127.0.0.1:57023', 'content-type': 'application/json' },
+    async *[Symbol.asyncIterator]() {
+      await new Promise(() => {});
+    },
+  };
+  const res = makeResponse();
+  await handler(request, res);
+  assert.equal(res.status, 408);
+});
+
 test('build handler hides sessions absent from the visible session list', async () => {
   const handler = createBuildHandler({
     readSession: async (id) => sampleSnapshot(id),

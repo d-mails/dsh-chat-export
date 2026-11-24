@@ -83,25 +83,44 @@ export function isTrustedRequest(request, trustedHosts = []) {
   return true;
 }
 
-async function readJsonBody(request) {
-  const chunks = [];
-  let bytes = 0;
-  for await (const chunk of request) {
-    const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
-    bytes += buffer.byteLength;
-    if (bytes > MAX_REQUEST_BYTES) throw new RequestError(413, 'request is too large');
-    chunks.push(buffer);
-  }
-  let value;
+async function readJsonBody(request, timeoutMs = 15000) {
+  const body = (async () => {
+    const chunks = [];
+    let bytes = 0;
+    for await (const chunk of request) {
+      const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+      bytes += buffer.byteLength;
+      if (bytes > MAX_REQUEST_BYTES) throw new RequestError(413, 'request is too large');
+      chunks.push(buffer);
+    }
+    let value;
+    try {
+      value = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+    } catch {
+      throw new RequestError(400, 'request must be valid JSON');
+    }
+    if (value === null || typeof value !== 'object' || Array.isArray(value)) {
+      throw new RequestError(400, 'request must be a JSON object');
+    }
+    return value;
+  })();
+  if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) return body;
+  let timer;
+  const timeout = new Promise((_resolve, reject) => {
+    timer = setTimeout(() => {
+      try {
+        request.destroy?.();
+      } catch {
+        // ignore teardown failures
+      }
+      reject(new RequestError(408, 'request timed out'));
+    }, timeoutMs);
+  });
   try {
-    value = JSON.parse(Buffer.concat(chunks).toString('utf8'));
-  } catch {
-    throw new RequestError(400, 'request must be valid JSON');
+    return await Promise.race([body, timeout]);
+  } finally {
+    clearTimeout(timer);
   }
-  if (value === null || typeof value !== 'object' || Array.isArray(value)) {
-    throw new RequestError(400, 'request must be a JSON object');
-  }
-  return value;
 }
 
 function sessionIdOf(value) {
@@ -276,6 +295,7 @@ function shortPreview(value) {
 
 export function createSessionsHandler({ listSessions, readTitleSnapshots, trustedHosts = [], onError = () => {}, admitRequest }) {
   return (request, response) => handle(request, response, trustedHosts, onError, async () => {
+    request.resume?.();
     let records = await listSessions();
     if (!Array.isArray(records)) records = [];
     records = records
@@ -309,9 +329,9 @@ export function createSessionsHandler({ listSessions, readTitleSnapshots, truste
   }, admitRequest);
 }
 
-export function createTurnsHandler({ readSession, listSessions, trustedHosts = [], onError = () => {}, admitRequest }) {
+export function createTurnsHandler({ readSession, listSessions, trustedHosts = [], onError = () => {}, admitRequest, requestTimeoutMs }) {
   return (request, response) => handle(request, response, trustedHosts, onError, async () => {
-    const value = await readJsonBody(request);
+    const value = await readJsonBody(request, requestTimeoutMs);
     const sessionId = sessionIdOf(value);
     await assertVisible(listSessions, sessionId);
     const snapshot = canonicalSnapshot(sessionId, await readSession(sessionId));
@@ -332,9 +352,9 @@ export function createTurnsHandler({ readSession, listSessions, trustedHosts = [
   }, admitRequest);
 }
 
-export function createBuildHandler({ readSession, listSessions, trustedHosts = [], onError = () => {}, admitRequest }) {
+export function createBuildHandler({ readSession, listSessions, trustedHosts = [], onError = () => {}, admitRequest, requestTimeoutMs }) {
   return (request, response) => handle(request, response, trustedHosts, onError, async () => {
-    const value = await readJsonBody(request);
+    const value = await readJsonBody(request, requestTimeoutMs);
     const sessionId = sessionIdOf(value);
     await assertVisible(listSessions, sessionId);
     const includeReasoning = value.includeReasoning === true;
