@@ -252,9 +252,14 @@ export function selectEntries(entries, selection = undefined) {
 
 function shortPreview(value) {
   const readable = String(value).replace(/\s+/gu, ' ').trim();
-  const characters = Array.from(readable);
-  if (characters.length <= MAX_TURN_PREVIEW) return readable;
-  return `${characters.slice(0, MAX_TURN_PREVIEW - 1).join('')}…`;
+  let head = '';
+  let count = 0;
+  for (const character of readable) {
+    count++;
+    if (count > MAX_TURN_PREVIEW) return `${head}…`;
+    if (count <= MAX_TURN_PREVIEW - 1) head += character;
+  }
+  return readable;
 }
 
 export function createSessionsHandler({ listSessions, readTitleSnapshots, trustedHosts = [], onError = () => {}, admitRequest }) {

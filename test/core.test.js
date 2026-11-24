@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
 
 import { extractConversation } from '../src/extract.js';
 import { renderMarkdown, renderHtmlDocument, renderHtmlFragment, expandUiFences } from '../src/render.js';
@@ -107,6 +108,29 @@ test('prefers the last assistant message when it is a final reply after tool cal
   ];
   const { entries } = extractConversation(events);
   assert.equal(entries[0].assistant, 'final answer');
+});
+
+test('tool result truncation does not materialize a full code point array', () => {
+  const events = [
+    ev('turn/start', { turn: 1 }, { seq: 1 }),
+    surface('user/message', { role: 'user', source: { kind: 'user' }, content: [{ type: 'text', text: 'q' }] }, { seq: 2 }),
+    surface('assistant/message', { turn: 1, step: 1, message: { role: 'assistant', source: { kind: 'model' }, content: [
+      { type: 'text', text: 'check' },
+      { type: 'tool-call', id: 'c1', name: 'bash', arguments: '{}' },
+    ] } }, { seq: 3 }),
+    surface('tool/result', { turn: 1, step: 2, message: { role: 'tool', toolCallId: 'c1', content: [{ type: 'text', text: 'y'.repeat(5000) }] } }, { seq: 4 }),
+    surface('assistant/message', { turn: 1, step: 3, message: { role: 'assistant', source: { kind: 'model' }, content: [{ type: 'text', text: 'done' }] } }, { seq: 5 }),
+    ev('turn/end', { turn: 1, reason: { kind: 'completed' } }, { seq: 6 }),
+  ];
+  const originalFrom = Array.from;
+  Array.from = () => { throw new Error('full code point array materialized'); };
+  let result;
+  try {
+    result = extractConversation(events, { includeTools: true });
+  } finally {
+    Array.from = originalFrom;
+  }
+  assert.equal(result.entries[0].tools[0].result.includes('more characters'), true);
 });
 
 test('a tool/call event after commentary invalidates the final answer', () => {
@@ -221,6 +245,30 @@ test('image note localizes', () => {
   assert.ok(markdownToHtml('![alt](u)', 'zh').includes('[图片：alt]'));
 });
 
+test('empty Markdown output uses the localized empty notice and fallback title', () => {
+  const en = renderMarkdown([], null);
+  assert.ok(en.includes('DSH Conversation'));
+  assert.ok(en.includes('No conversation content to export.'));
+  const zh = renderMarkdown([], null, { lang: 'zh' });
+  assert.ok(zh.includes('DSH 对话'));
+  assert.ok(zh.includes('没有可导出的对话内容。'));
+});
+
+test('renderMarkdown tolerates entries without a humans array', () => {
+  const markdown = renderMarkdown([{ turn: 1, assistant: 'answer', reasoning: null, tools: [] }], 'T');
+  assert.ok(markdown.includes('answer'));
+});
+
+test('HTML output shows the empty notice when every entry is filtered', () => {
+  const html = renderHtmlDocument([{ turn: 1, humans: [], assistant: null, reasoning: null, tools: [] }], 'T');
+  assert.ok(html.includes('No conversation content to export.'));
+});
+
+test('English locale metadata contains no Chinese copy', () => {
+  const locale = JSON.parse(fs.readFileSync(new URL('../locale/en.json', import.meta.url), 'utf8'));
+  assert.ok(!/[\u4e00-\u9fff]/u.test(locale.meta.description));
+});
+
 test('renderHtmlDocument is a full document and renderHtmlFragment returns parts', () => {
   const { entries } = extractConversation(sampleEvents(), { includeReasoning: true, includeTools: true });
   const doc = renderHtmlDocument(entries, '测试');
@@ -316,6 +364,29 @@ test('unparseable dsh-ui fence degrades to a note', () => {
   const out = expandUiFences('```dsh-ui\n{not json}\n```');
   assert.ok(out.includes('Interactive component'));
   assert.ok(!out.includes('dsh-ui'));
+});
+
+test('dsh-ui chart fences become a readable table', () => {
+  const spec = {
+    title: 'Chart',
+    items: [{ type: 'chart', kind: 'bars', data: [{ label: 'A', value: 1 }, { label: 'B', value: 2 }] }],
+  };
+  const expanded = expandUiFences('```dsh-ui\n' + JSON.stringify(spec) + '\n```');
+  assert.ok(expanded.includes('| Label | Value |'));
+  assert.ok(expanded.includes('| A | 1 |'));
+  assert.ok(expanded.includes('| B | 2 |'));
+});
+
+test('dsh-ui fences inside another code block are not expanded', () => {
+  const source = '```md\n```dsh-ui\n{"items":[]}\n```\n```';
+  const expanded = expandUiFences(source);
+  assert.ok(expanded.includes('```dsh-ui'));
+});
+
+test('markdownToHtml keeps escaped table pipes inside one cell', () => {
+  const html = markdownToHtml('| a | b |\n|---|---|\n| x \\| y | z |');
+  assert.ok(html.includes('<td>x | y</td>'));
+  assert.ok(html.includes('<td>z</td>'));
 });
 
 test('hides messages covered by a rewind replacement range', () => {

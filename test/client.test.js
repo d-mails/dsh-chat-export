@@ -10,12 +10,14 @@ await import('../client.js');
 const ReactStub = {
   useState: (initial) => [typeof initial === 'function' ? initial() : initial, () => {}],
   useEffect: () => {},
+  useRef: (initial) => ({ current: initial }),
   createElement: () => null,
 };
 const jsxRuntimeStub = { jsx: () => null, jsxs: () => null };
 const plugin = captured.factory((id) => {
   if (id === 'react') return ReactStub;
   if (id === 'react/jsx-runtime') return jsxRuntimeStub;
+  if (id === 'react-dom') return { createPortal: (node) => node };
   throw new Error('unexpected require ' + id);
 });
 
@@ -31,6 +33,13 @@ test('client module registers the header utilities slot', () => {
   };
   plugin.apply(ctx);
   assert.ok(registered.includes('conversation.session.header.utilities'));
+});
+
+test('shortId strips the session prefix and keeps the UUID fragment', () => {
+  const { shortId } = plugin.__test;
+  assert.equal(shortId('session-7cdd3966-28a1-4735-8dae-903df0cd56b8'), '7cdd3966');
+  assert.equal(shortId('abc12345-extra'), 'abc12345');
+  assert.equal(shortId('short'), 'short');
 });
 
 test('compactSelection uses include/exclude and bits', () => {
@@ -134,6 +143,8 @@ test('i18n dictionaries have matching keys in en and zh', () => {
   const zh = Object.keys(i18nDict.zh).sort();
   assert.deepEqual(en, zh);
   assert.ok(en.includes('btnExport'));
+  assert.ok(en.includes('sessionsError'));
+  assert.ok(en.includes('loadingSessions'));
   for (const key of en) {
     assert.ok(typeof i18nDict.en[key] === 'string' && i18nDict.en[key].length > 0, 'en ' + key);
     assert.ok(typeof i18nDict.zh[key] === 'string' && i18nDict.zh[key].length > 0, 'zh ' + key);

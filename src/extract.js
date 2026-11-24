@@ -124,9 +124,16 @@ function analyzeContent(content, stats, sink) {
 
 function truncateText(value, max) {
   if (typeof value !== 'string') return '';
-  const characters = Array.from(value);
-  if (characters.length <= max) return value;
-  return `${characters.slice(0, max).join('')}\n… (${characters.length - max} more characters)`;
+  // Fast path: UTF-16 length is an upper bound on code point count.
+  if (value.length <= max) return value;
+  let count = 0;
+  let output = '';
+  for (const character of value) {
+    count++;
+    if (count <= max) output += character;
+  }
+  if (count <= max) return value;
+  return `${output}\n… (${count - max} more characters)`;
 }
 
 /**

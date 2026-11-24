@@ -100,7 +100,24 @@ function splitRow(line) {
   let value = line.trim();
   if (value.startsWith('|')) value = value.slice(1);
   if (value.endsWith('|')) value = value.slice(0, -1);
-  return value.split('|').map((cell) => cell.trim());
+  const cells = [];
+  let cell = '';
+  for (let index = 0; index < value.length; index++) {
+    const character = value[index];
+    if (character === '\\' && value[index + 1] === '|') {
+      cell += '|';
+      index++;
+      continue;
+    }
+    if (character === '|') {
+      cells.push(cell.trim());
+      cell = '';
+      continue;
+    }
+    cell += character;
+  }
+  cells.push(cell.trim());
+  return cells;
 }
 
 function isTableSeparator(line) {

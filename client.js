@@ -15,7 +15,11 @@ window.__ModuleLoader__.load({
   factory(require) {
     const React = require('react');
     const { jsx, jsxs } = require('react/jsx-runtime');
-    const { useState } = React;
+    const ReactDOM = require('react-dom');
+    const { useEffect, useRef, useState } = React;
+    const useLocaleStore = typeof React.useSyncExternalStore === 'function'
+      ? React.useSyncExternalStore
+      : () => {};
 
     const I18N_NS = "dsh-chat-export";
     const I18N_EMPTY_SNAPSHOT = { revision: 0 };
@@ -58,7 +62,9 @@ window.__ModuleLoader__.load({
         "selectAtLeastOne": "Select at least one turn",
         "requestFailed": "Request failed: HTTP {status}{detail}",
         "pdfRenderFailed": "PDF rendering failed",
-        "tooManyPages": "Conversation is too long (over {pages} pages) for direct PDF generation. Turn off “Include tool calls” or use HTML / Markdown."
+        "tooManyPages": "Conversation is too long (over {pages} pages) for direct PDF generation. Turn off “Include tool calls” or use HTML / Markdown.",
+        "loadingSessions": "Loading conversations…",
+        "sessionsError": "Failed to load conversations: {message}"
       },
       zh: {
         "btnExport": "导出对话",
@@ -98,7 +104,9 @@ window.__ModuleLoader__.load({
         "selectAtLeastOne": "请至少选择一个回合",
         "requestFailed": "请求失败：HTTP {status}{detail}",
         "pdfRenderFailed": "PDF 渲染失败",
-        "tooManyPages": "对话过长（超过 {pages} 页），直接生成 PDF 可能很慢。请关闭“包含工具调用”或改用 HTML / Markdown。"
+        "tooManyPages": "对话过长（超过 {pages} 页），直接生成 PDF 可能很慢。请关闭“包含工具调用”或改用 HTML / Markdown。",
+        "loadingSessions": "正在读取对话列表…",
+        "sessionsError": "对话列表读取失败：{message}"
       }
     };
     let i18nTranslate = null;
@@ -185,12 +193,15 @@ window.__ModuleLoader__.load({
       '.dshChatExportSecondary{border:1px solid var(--dsw-alias-border-l2);border-radius:8px;padding:8px 16px;background:transparent;color:var(--dsw-alias-label-primary);font:inherit;font-size:13px;cursor:pointer}',
     ].join('');
 
-    if (typeof document !== 'undefined' && document.querySelector('style[data-plugin-css="' + STYLE_ID + '"]') === null) {
+    function ensureStyle() {
+      if (typeof document === 'undefined') return () => {};
+      if (document.querySelector('style[data-plugin-css="' + STYLE_ID + '"]') !== null) return () => {};
       const tag = document.createElement('style');
       tag.dataset.plugin = 'dsh-chat-export';
       tag.dataset.pluginCss = STYLE_ID;
       tag.textContent = STYLE;
       document.head.appendChild(tag);
+      return () => tag.remove();
     }
 
     function errorMessage(error) {
@@ -296,6 +307,8 @@ ${fragment?.bodyHtml ?? ''}
 
     function shortId(sessionId) {
       const value = String(sessionId);
+      const match = /^session-([0-9A-Fa-f]{8})/u.exec(value);
+      if (match !== null) return match[1].toLowerCase();
       return value.length > 8 ? value.slice(0, 8) : value;
     }
 
@@ -528,7 +541,7 @@ ${fragment?.bodyHtml ?? ''}
     // ---- React component ----
 
     function ChatExportAction({ sessionId }) {
-      if (typeof React.useSyncExternalStore === "function") React.useSyncExternalStore(subscribeLocale, getLocaleRevision);
+      useLocaleStore(subscribeLocale, getLocaleRevision);
       const [open, setOpen] = useState(false);
       const [sessions, setSessions] = useState({ status: 'idle', list: [], error: null });
       const [target, setTarget] = useState(sessionId);
@@ -541,26 +554,77 @@ ${fragment?.bodyHtml ?? ''}
       const [busy, setBusy] = useState(false);
       const [error, setError] = useState(null);
       const [note, setNote] = useState(null);
+      const dialogRef = useRef(null);
+      const sessionsRequest = useRef(0);
+      const turnsRequest = useRef(0);
+      const busyRef = useRef(false);
+      busyRef.current = busy;
+
+      useEffect(() => {
+        if (!open) return undefined;
+        const previous = document.activeElement;
+        const dialog = dialogRef.current;
+        const focusables = () => Array.from(dialog?.querySelectorAll(
+          'button:not(:disabled), select:not(:disabled), input:not(:disabled), [tabindex]:not([tabindex="-1"])',
+        ) ?? []);
+        const first = focusables()[0];
+        if (first !== undefined) first.focus();
+        else dialog?.focus();
+        const onKeyDown = (event) => {
+          if (event.key === 'Escape') {
+            if (busyRef.current) return;
+            event.preventDefault();
+            setOpen(false);
+            return;
+          }
+          if (event.key !== 'Tab') return;
+          const items = focusables();
+          if (items.length === 0) {
+            event.preventDefault();
+            return;
+          }
+          const firstItem = items[0];
+          const lastItem = items[items.length - 1];
+          if (event.shiftKey && document.activeElement === firstItem) {
+            event.preventDefault();
+            lastItem.focus();
+          } else if (!event.shiftKey && document.activeElement === lastItem) {
+            event.preventDefault();
+            firstItem.focus();
+          }
+        };
+        document.addEventListener('keydown', onKeyDown);
+        return () => {
+          document.removeEventListener('keydown', onKeyDown);
+          if (previous instanceof HTMLElement) previous.focus();
+        };
+      }, [open]);
 
       async function loadSessions() {
+        const request = ++sessionsRequest.current;
         setSessions({ status: 'loading', list: [], error: null });
         try {
           const value = await postJson(SESSIONS_PATH, {});
+          if (request !== sessionsRequest.current) return;
           setSessions({ status: 'ready', list: Array.isArray(value.sessions) ? value.sessions : [], error: null });
         } catch (caught) {
+          if (request !== sessionsRequest.current) return;
           setSessions({ status: 'error', list: [], error: errorMessage(caught) });
         }
       }
 
       async function loadTurns(id) {
+        const request = ++turnsRequest.current;
         setTurns({ status: 'loading', list: [], error: null });
         setSelected(new Set());
         try {
           const value = await postJson(TURNS_PATH, { sessionId: id });
+          if (request !== turnsRequest.current) return;
           const list = Array.isArray(value.turns) ? value.turns : [];
           setTurns({ status: 'ready', list, error: null });
           setSelected(new Set(list.map((turn) => turn.index)));
         } catch (caught) {
+          if (request !== turnsRequest.current) return;
           setTurns({ status: 'error', list: [], error: errorMessage(caught) });
         }
       }
@@ -718,15 +782,17 @@ ${fragment?.bodyHtml ?? ''}
             onClick: openDialog,
             children: t('btnExport'),
           }),
-          jsxs('div', {
+          ReactDOM.createPortal(jsxs('div', {
             className: 'dshChatExportOverlay',
-            onKeyDown: (event) => { if (event.key === 'Escape') closeDialog(); },
+            onMouseDown: (event) => { if (event.target === event.currentTarget) closeDialog(); },
             children: [
               jsxs('div', {
+                ref: dialogRef,
                 className: 'dshChatExportDialog',
                 role: 'dialog',
                 'aria-modal': true,
                 'aria-label': t('btnExport'),
+                tabIndex: -1,
                 children: [
                   jsxs('div', {
                     className: 'dshChatExportHead',
@@ -768,6 +834,18 @@ ${fragment?.bodyHtml ?? ''}
                           }),
                         ],
                       }),
+                      sessions.status === 'loading'
+                        ? jsx('p', { className: 'dshChatExportHint', children: t('loadingSessions') })
+                        : null,
+                      sessions.status === 'error'
+                        ? jsxs('div', {
+                          className: 'dshChatExportHint',
+                          children: [
+                            jsx('span', { className: 'dshChatExportError', children: t('sessionsError', { message: sessions.error || t('unknownError') }) }),
+                            jsx('button', { type: 'button', className: 'dshChatExportSmall', onClick: loadSessions, children: t('retry') }),
+                          ],
+                        })
+                        : null,
                       jsxs('div', {
                         className: 'dshChatExportRow',
                         children: [
@@ -858,15 +936,17 @@ ${fragment?.bodyHtml ?? ''}
                 ],
               }),
             ],
-          }),
+          }), document.body),
         ],
       });
     }
 
     return {
       inject: ['slots', 'locale'],
-      __test: { assemblePdf, compactSelection, printDocumentFromFragment, xhtmlBody, analyzePage, i18nDict: I18N_DICT, translate: t, currentLang },
+      __test: { assemblePdf, compactSelection, printDocumentFromFragment, shortId, xhtmlBody, analyzePage, i18nDict: I18N_DICT, translate: t, currentLang },
       apply(ctx) {
+        if (typeof ctx.effect === 'function') ctx.effect(ensureStyle, 'chat-export: styles');
+        else ensureStyle();
         try {
           const locale = ctx.get?.('locale');
           const activeSnapshot = locale && typeof locale.getLocale === 'function' ? locale.getLocale() : null;
@@ -890,7 +970,7 @@ ${fragment?.bodyHtml ?? ''}
           name: 'conversation.session.header.utilities',
           id: 'chat-export',
           order: 20,
-          label: t('btnExport'),
+          label: () => t('btnExport'),
         }, ChatExportAction));
       },
     };

@@ -162,6 +162,33 @@ test('build handler localizes export labels by lang', async () => {
   assert.ok(JSON.parse(enRes.body).markdown.includes('> **Human**'));
 });
 
+test('turn previews do not materialize a full code point array', async () => {
+  const longText = 'x'.repeat(5000);
+  const snapshot = {
+    session: { id: 'sess-long' },
+    events: [
+      { type: 'turn/start', seq: 1, data: { turn: 1 } },
+      { type: 'user/message', seq: 2, surfaceOp: 'append', data: { role: 'user', source: { kind: 'user' }, content: [{ type: 'text', text: longText }] } },
+      { type: 'assistant/message', seq: 3, surfaceOp: 'append', data: { turn: 1, step: 1, message: { role: 'assistant', source: { kind: 'model' }, content: [{ type: 'text', text: 'ok' }] } } },
+      { type: 'turn/end', seq: 4, data: { turn: 1, reason: { kind: 'completed' } } },
+    ],
+  };
+  const handler = createTurnsHandler({ readSession: async () => snapshot, onError: () => {} });
+  const originalFrom = Array.from;
+  Array.from = () => { throw new Error('full code point array materialized'); };
+  let res;
+  try {
+    res = makeResponse();
+    await handler(makeRequest({ sessionId: 'sess-long' }), res);
+  } finally {
+    Array.from = originalFrom;
+  }
+  assert.equal(res.status, 200);
+  const value = JSON.parse(res.body);
+  assert.ok(value.turns[0].human.endsWith('…'));
+  assert.ok(value.turns[0].human.length <= 180);
+});
+
 test('turns handler returns previews with reasoning/tool flags', async () => {
   const handler = createTurnsHandler({ readSession: async (id) => sampleSnapshot(id), onError: () => {} });
   const res = makeResponse();

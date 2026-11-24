@@ -8,9 +8,9 @@
 
 import { markdownToHtml } from './md-html.js';
 
-const FALLBACK_TITLE = 'DSH Conversation';
 const LABELS = {
   en: {
+    fallbackTitle: 'DSH Conversation',
     human: 'Human',
     assistant: 'Assistant',
     thinking: 'Thinking',
@@ -26,9 +26,12 @@ const LABELS = {
     interactiveTitle: (title) => `> _[Interactive component${title ? ': ' + title : ''}]_`,
     keyValue: (key, value) => `- **${key}**: ${value}`,
     stat: (label, value) => `- **${label}**: ${value}`,
+    chartLabel: 'Label',
+    chartValue: 'Value',
     htmlLang: 'en',
   },
   zh: {
+    fallbackTitle: '\u0044\u0053\u0048 \u5bf9\u8bdd',
     human: '用户',
     assistant: '助手',
     thinking: '思考过程',
@@ -44,6 +47,8 @@ const LABELS = {
     interactiveTitle: (title) => `> _[交互组件${title ? '：' + title : ''}]_`,
     keyValue: (key, value) => `- **${key}**：${value}`,
     stat: (label, value) => `- **${label}**：${value}`,
+    chartLabel: '\u6807\u7b7e',
+    chartValue: '\u6570\u503c',
     htmlLang: 'zh-CN',
   },
 };
@@ -128,6 +133,17 @@ function uiSpecToMarkdown(spec, lang) {
         case 'table':
           if (Array.isArray(item.columns) && Array.isArray(item.rows)) out.push(uiTable(item.columns, item.rows));
           break;
+        case 'chart':
+          if (Array.isArray(item.data)) {
+            out.push(uiTable(
+              [L.chartLabel, L.chartValue],
+              item.data.map((point) => [
+                point?.label ?? point?.name ?? '',
+                point?.value ?? '',
+              ]),
+            ));
+          }
+          break;
         case 'keyvalue':
           if (Array.isArray(item.pairs)) out.push(item.pairs.map((pair) => L.keyValue(mdCell(pair?.key), mdCell(pair?.value))).join('\n'));
           break;
@@ -164,18 +180,56 @@ function uiSpecToMarkdown(spec, lang) {
 export function expandUiFences(text, lang = 'en') {
   if (typeof text !== 'string' || !text.includes('```dsh-ui')) return text;
   const L = labelsFor(lang);
-  return text.replace(/```dsh-ui[^\n]*\n([\s\S]*?)```/gu, (_match, body) => {
-    let spec;
-    try {
-      spec = JSON.parse(body.trim());
-    } catch {
-      return L.unparsed;
+  const lines = text.split(/\r?\n/u);
+  const out = [];
+  let outer = null;
+  for (let index = 0; index < lines.length; index++) {
+    const line = lines[index];
+    if (outer !== null) {
+      out.push(line);
+      if (closesFence(line, outer)) outer = null;
+      continue;
     }
-    const markdown = uiSpecToMarkdown(spec, lang);
-    if (markdown.trim() !== '') return markdown;
-    const title = spec && typeof spec.title === 'string' ? spec.title.trim() : '';
-    return L.interactiveTitle(title);
-  });
+    const dshFence = /^ {0,3}(`{3,}|~{3,})dsh-ui\b/u.exec(line);
+    if (dshFence !== null) {
+      const fence = { character: dshFence[1][0], length: dshFence[1].length };
+      const body = [];
+      let cursor = index + 1;
+      while (cursor < lines.length && !closesFence(lines[cursor], fence)) {
+        body.push(lines[cursor]);
+        cursor++;
+      }
+      if (cursor < lines.length) {
+        let spec;
+        try {
+          spec = JSON.parse(body.join('\n').trim());
+        } catch {
+          out.push(L.unparsed);
+          index = cursor;
+          continue;
+        }
+        const markdown = uiSpecToMarkdown(spec, lang);
+        if (markdown.trim() !== '') out.push(markdown);
+        else {
+          const title = spec && typeof spec.title === 'string' ? spec.title.trim() : '';
+          out.push(L.interactiveTitle(title));
+        }
+        index = cursor;
+        continue;
+      }
+      // No closing fence: leave the source untouched.
+      out.push(line);
+      continue;
+    }
+    const fence = openingFence(line);
+    if (fence !== null) {
+      outer = fence;
+      out.push(line);
+      continue;
+    }
+    out.push(line);
+  }
+  return out.join('\n');
 }
 
 function detailsSection(summary, body) {
@@ -211,16 +265,16 @@ export function renderMarkdown(entries, title = null, options = {}) {
   for (const entry of entries) {
     const hasTools = (entry.tools ?? []).length > 0;
     if ((entry.humans?.length ?? 0) === 0 && entry.assistant === null && !entry.reasoning && !hasTools) continue;
-    for (const human of entry.humans) sections.push(roleSection(L.human, human, options.lang));
+    for (const human of entry.humans ?? []) sections.push(roleSection(L.human, human, options.lang));
     if (entry.reasoning) sections.push(detailsSection(L.thinking, entry.reasoning));
     for (const tool of entry.tools ?? []) sections.push(toolSection(tool, options.lang));
     if (entry.assistant !== null) sections.push(roleSection(L.assistant, entry.assistant, options.lang));
     else sections.push(L.incompleteMarkdown);
   }
-  const documentTitle = title ?? FALLBACK_TITLE;
+  const documentTitle = title ?? L.fallbackTitle;
   return sections.length > 0
     ? `# ${documentTitle}\n\n---\n\n${sections.join('\n\n---\n\n')}\n`
-    : `# ${documentTitle}\n`;
+    : `# ${documentTitle}\n\n${L.empty}\n`;
 }
 
 const STYLE = `
@@ -273,11 +327,11 @@ function htmlParts(entries, title, options = {}) {
   const L = labelsFor(options.lang);
   const body = [];
   const detailsOpen = options.detailsOpen === true ? ' open' : '';
-  const documentTitle = title ?? FALLBACK_TITLE;
+  const documentTitle = title ?? L.fallbackTitle;
   for (const entry of entries) {
     const hasTools = (entry.tools ?? []).length > 0;
     if ((entry.humans?.length ?? 0) === 0 && entry.assistant === null && !entry.reasoning && !hasTools) continue;
-    for (const human of entry.humans) {
+    for (const human of entry.humans ?? []) {
       body.push(`<article class="dsh-msg dsh-msg-human"><div class="dsh-role">${L.human}</div><div class="dsh-md">${markdownToHtml(expandUiFences(human, options.lang), options.lang)}</div></article>`);
     }
     if (entry.reasoning) {
@@ -302,7 +356,7 @@ function htmlParts(entries, title, options = {}) {
     documentTitle,
     innerHtml: `<div class="dsh-export-doc"><h1 class="dsh-export-title">${escapeInline(documentTitle)}</h1>${body.join('\n')}</div>`,
     emptyHtml: `<div class="dsh-export-doc"><h1 class="dsh-export-title">${escapeInline(documentTitle)}</h1><p class="dsh-empty">${L.empty}</p></div>`,
-    hasContent: entries.length > 0,
+    hasContent: body.length > 0,
   };
 }
 
