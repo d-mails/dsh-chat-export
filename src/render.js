@@ -75,6 +75,29 @@ export function protectMarkdownFences(message) {
   return `${message}${newline}${open.character.repeat(open.length)}`;
 }
 
+function fenceFor(text, language = '') {
+  let longest = 0;
+  for (const match of String(text).matchAll(/`+/gu)) longest = Math.max(longest, match[0].length);
+  const fence = '`'.repeat(Math.max(3, longest + 1));
+  return `${fence}${language}\n${text}\n${fence}`;
+}
+
+function escapeWrapperTags(markdown) {
+  let open = null;
+  return String(markdown).split(/\r?\n/u).map((line) => {
+    if (open !== null) {
+      if (closesFence(line, open)) open = null;
+      return line;
+    }
+    const fence = openingFence(line);
+    if (fence !== null) {
+      open = fence;
+      return line;
+    }
+    return line.replace(/<(?=\/?(?:details|summary)(?=[\s/>]))/giu, '&lt;');
+  }).join('\n');
+}
+
 function roleSection(roleLabel, message, lang) {
   return `> **${roleLabel}**\n\n${protectMarkdownFences(expandUiFences(message, lang))}`;
 }
@@ -156,17 +179,17 @@ export function expandUiFences(text, lang = 'en') {
 }
 
 function detailsSection(summary, body) {
-  return `<details>\n<summary>${summary}</summary>\n\n${protectMarkdownFences(body)}\n\n</details>`;
+  return `<details>\n<summary>${summary}</summary>\n\n${protectMarkdownFences(escapeWrapperTags(body))}\n\n</details>`;
 }
 
 function toolSection(tool, lang) {
   const L = labelsFor(lang);
   const parts = [`\`${tool.name}\``];
   if (tool.arguments && tool.arguments.trim() !== '') {
-    parts.push(`${L.arguments}:\n\n\`\`\`json\n${tool.arguments}\n\`\`\``);
+    parts.push(`${L.arguments}:\n\n${fenceFor(tool.arguments, 'json')}`);
   }
   if (tool.result && tool.result.trim() !== '') {
-    parts.push(`${tool.isError ? L.resultError : L.result}:\n\n\`\`\`text\n${tool.result}\n\`\`\``);
+    parts.push(`${tool.isError ? L.resultError : L.result}:\n\n${fenceFor(tool.result, 'text')}`);
   } else if (tool.result === null) {
     parts.push(L.resultNotCaptured);
   }
@@ -249,6 +272,7 @@ details.dsh-details[open] > summary { margin-bottom: 8px; }
 function htmlParts(entries, title, options = {}) {
   const L = labelsFor(options.lang);
   const body = [];
+  const detailsOpen = options.detailsOpen === true ? ' open' : '';
   const documentTitle = title ?? FALLBACK_TITLE;
   for (const entry of entries) {
     const hasTools = (entry.tools ?? []).length > 0;
@@ -257,7 +281,7 @@ function htmlParts(entries, title, options = {}) {
       body.push(`<article class="dsh-msg dsh-msg-human"><div class="dsh-role">${L.human}</div><div class="dsh-md">${markdownToHtml(expandUiFences(human, options.lang), options.lang)}</div></article>`);
     }
     if (entry.reasoning) {
-      body.push(`<details class="dsh-details"><summary>${L.thinking}</summary><div class="dsh-md">${markdownToHtml(entry.reasoning, options.lang)}</div></details>`);
+      body.push(`<details class="dsh-details"${detailsOpen}><summary>${L.thinking}</summary><div class="dsh-md">${markdownToHtml(entry.reasoning, options.lang)}</div></details>`);
     }
     for (const tool of entry.tools ?? []) {
       const argHtml = tool.arguments && tool.arguments.trim() !== ''
@@ -266,7 +290,7 @@ function htmlParts(entries, title, options = {}) {
       const resultHtml = tool.result && tool.result.trim() !== ''
         ? `<p><strong>${tool.isError ? L.resultError : L.result}</strong></p><pre class="dsh-code"><code>${escapeInline(tool.result)}</code></pre>`
         : '';
-      body.push(`<details class="dsh-details"><summary>${L.toolCall} · ${escapeInline(tool.name)}</summary>${argHtml}${resultHtml}</details>`);
+      body.push(`<details class="dsh-details"${detailsOpen}><summary>${L.toolCall} · ${escapeInline(tool.name)}</summary>${argHtml}${resultHtml}</details>`);
     }
     if (entry.assistant !== null) {
       body.push(`<article class="dsh-msg dsh-msg-assistant"><div class="dsh-role">${L.assistant}</div><div class="dsh-md">${markdownToHtml(expandUiFences(entry.assistant, options.lang), options.lang)}</div></article>`);
@@ -284,7 +308,7 @@ function htmlParts(entries, title, options = {}) {
 
 /** Inner document markup only, for the client-side PDF rasterizer. */
 export function renderHtmlFragment(entries, title, options = {}) {
-  const parts = htmlParts(entries, title, options);
+  const parts = htmlParts(entries, title, { ...options, detailsOpen: true });
   return {
     title: parts.documentTitle,
     bodyHtml: parts.hasContent ? parts.innerHtml : parts.emptyHtml,

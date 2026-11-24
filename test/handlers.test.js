@@ -8,6 +8,7 @@ import {
   isTrustedRequest,
   selectEntries,
 } from '../src/production.js';
+import { apply as applyHost } from '../index.js';
 
 function makeRequest(body, { method = 'POST', origin = 'http://127.0.0.1:57023', host = '127.0.0.1:57023', crossSite } = {}) {
   const payload = Buffer.from(JSON.stringify(body ?? {}), 'utf8');
@@ -59,6 +60,55 @@ test('trust fence accepts same-origin and rejects cross-site / bad origin', () =
   assert.equal(isTrustedRequest(makeRequest({}, nonLoopback), ['evil.example:8080']), true);
   const noHost = { method: 'POST', headers: { origin: 'http://127.0.0.1:57023' }, async *[Symbol.asyncIterator]() {} };
   assert.equal(isTrustedRequest(noHost), false);
+  // An explicit trusted port is exact, not any port on that host.
+  assert.equal(isTrustedRequest(makeRequest({}, { host: 'evil.example:9999', origin: 'http://evil.example:9999' }), ['evil.example:8080']), false);
+  // Only http(s) origins are acceptable.
+  assert.equal(isTrustedRequest(makeRequest({}, { origin: 'ftp://127.0.0.1:57023' })), false);
+});
+
+test('host routes use the connection admission for authentication', async () => {
+  const routes = [];
+  const ctx = {
+    connection: { requestRejection: () => 401 },
+    sessionQuery: {},
+    webServer: {
+      getOrigin: () => 'http://127.0.0.1:57023',
+      register(route) { routes.push(route); return () => {}; },
+    },
+    get: () => undefined,
+    effect(callback) { return callback(); },
+    logger: { warn() {} },
+  };
+  applyHost(ctx);
+  const sessionsRoute = routes.find((route) => route.path === '/api/chat-export.sessions');
+  assert.ok(sessionsRoute);
+  const res = makeResponse();
+  await sessionsRoute.handler(makeRequest({}), res);
+  assert.equal(res.status, 401);
+  assert.equal(res.body, 'unauthorized');
+});
+
+test('handlers reject a request when connection admission fails', async () => {
+  const handler = createBuildHandler({
+    readSession: async (id) => sampleSnapshot(id),
+    admitRequest: () => 401,
+    onError: () => {},
+  });
+  const res = makeResponse();
+  await handler(makeRequest({ sessionId: 'sess-1' }), res);
+  assert.equal(res.status, 401);
+  assert.equal(res.body, 'unauthorized');
+});
+
+test('handlers accept a request when connection admission passes', async () => {
+  const handler = createBuildHandler({
+    readSession: async (id) => sampleSnapshot(id),
+    admitRequest: () => undefined,
+    onError: () => {},
+  });
+  const res = makeResponse();
+  await handler(makeRequest({ sessionId: 'sess-1' }), res);
+  assert.equal(res.status, 200);
 });
 
 test('build handler returns markdown, html and fragment', async () => {

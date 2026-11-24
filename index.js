@@ -16,15 +16,21 @@ import {
 } from './src/production.js';
 
 export const name = 'chat-export';
-export const inject = ['sessionQuery', 'webServer'];
+export const inject = ['sessionQuery', 'webServer', 'connection'];
 
 export function apply(ctx) {
   const trustedHosts = [];
   try {
+    const startup = ctx.get?.('webStartup');
+    if (Array.isArray(startup?.trustedHosts)) trustedHosts.push(...startup.trustedHosts);
+  } catch {
+    // optional service (older DSH releases)
+  }
+  try {
     const runtime = ctx.get?.('webRuntime');
     if (Array.isArray(runtime?.trustedHosts)) trustedHosts.push(...runtime.trustedHosts);
   } catch {
-    // optional service
+    // optional service (older DSH releases)
   }
   try {
     trustedHosts.push(new URL(ctx.webServer.getOrigin()).host);
@@ -32,8 +38,14 @@ export function apply(ctx) {
     // getOrigin throws before the server listens
   }
 
+  const connection = ctx.connection ?? ctx.get?.('connection');
+  const admitRequest = typeof connection?.requestRejection === 'function'
+    ? (request) => connection.requestRejection(request)
+    : undefined;
+
   const options = {
     trustedHosts,
+    admitRequest,
     listSessions: () => ctx.sessionQuery.listSessions(),
     readTitleSnapshots: (sessionIds) => ctx.sessionQuery.readTitleSnapshots(sessionIds),
     readSession: (sessionId) => ctx.sessionQuery.readSession(sessionId),

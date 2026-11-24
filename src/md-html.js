@@ -53,6 +53,15 @@ function inline(raw, lang = 'en') {
     return stash(`<a href="${escapeAttr(href)}" target="_blank" rel="noopener noreferrer">${inline(label, lang)}</a>`);
   });
 
+  // Bare autolinks. Stash them before general text escaping so the URL is
+  // escaped once as an attribute; putting it in href after escaping would let
+  // a quote in the URL inject extra attributes.
+  text = text.replace(/(^|[\s(])(https?:\/\/[^\s<)]+)/gu, (match, prefix, url) => {
+    const href = safeUrl(url);
+    if (href === null) return match;
+    return `${prefix}${stash(`<a href="${escapeAttr(href)}" target="_blank" rel="noopener noreferrer">${escapeHtml(url)}</a>`)}`;
+  });
+
   text = escapeHtml(text);
 
   // Emphasis (markers survive HTML escaping).
@@ -61,9 +70,6 @@ function inline(raw, lang = 'en') {
   text = text.replace(/(^|[^*])\*([^*\n]+)\*/gu, '$1<em>$2</em>');
   text = text.replace(/(^|[^_])_([^_\n]+)_/gu, '$1<em>$2</em>');
   text = text.replace(/~~([^~]+)~~/gu, '<del>$1</del>');
-
-  // Bare autolinks (already escaped, so & became &amp;).
-  text = text.replace(/(^|[\s(])(https?:\/\/[^\s<)]+)/gu, '$1<a href="$2" target="_blank" rel="noopener noreferrer">$2</a>');
 
   text = text.replace(/\n/gu, '<br>');
 

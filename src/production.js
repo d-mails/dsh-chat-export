@@ -50,7 +50,9 @@ function isTrustedAuthority(hostUrl, trustedHosts) {
   return trustedHosts.some((entry) => {
     const entryUrl = parseAuthority(entry);
     if (entryUrl === undefined) return false;
-    return entryUrl.host === hostUrl.host || entryUrl.hostname === hostUrl.hostname;
+    // An explicit port is exact; only a port-less entry matches any port.
+    if (entryUrl.port !== '') return entryUrl.host === hostUrl.host;
+    return entryUrl.hostname === hostUrl.hostname;
   });
 }
 
@@ -71,7 +73,9 @@ export function isTrustedRequest(request, trustedHosts = []) {
   const origin = header(request.headers, 'origin');
   if (origin !== undefined) {
     try {
-      if (new URL(origin).host !== hostUrl.host) return false;
+      const originUrl = new URL(origin);
+      if (originUrl.protocol !== 'http:' && originUrl.protocol !== 'https:') return false;
+      if (originUrl.host !== hostUrl.host) return false;
     } catch {
       return false;
     }
@@ -126,12 +130,29 @@ function writeText(response, status, text, extraHeaders = {}) {
   response.end(text);
 }
 
-async function handle(request, response, trustedHosts, onError, run) {
+async function handle(request, response, trustedHosts, onError, run, admitRequest) {
   if (request.method !== 'POST') {
     writeText(response, 405, 'method not allowed', { Allow: 'POST' });
     return;
   }
-  if (!isTrustedRequest(request, trustedHosts)) {
+  if (typeof admitRequest === 'function') {
+    let rejection;
+    try {
+      rejection = admitRequest(request);
+    } catch (error) {
+      try {
+        onError(error);
+      } catch {
+        // ignore logging failures
+      }
+      writeText(response, 500, 'chat export failed');
+      return;
+    }
+    if (rejection === 401 || rejection === 403) {
+      writeText(response, rejection, rejection === 401 ? 'unauthorized' : 'forbidden');
+      return;
+    }
+  } else if (!isTrustedRequest(request, trustedHosts)) {
     writeText(response, 403, 'forbidden');
     return;
   }
@@ -236,7 +257,7 @@ function shortPreview(value) {
   return `${characters.slice(0, MAX_TURN_PREVIEW - 1).join('')}…`;
 }
 
-export function createSessionsHandler({ listSessions, readTitleSnapshots, trustedHosts = [], onError = () => {} }) {
+export function createSessionsHandler({ listSessions, readTitleSnapshots, trustedHosts = [], onError = () => {}, admitRequest }) {
   return (request, response) => handle(request, response, trustedHosts, onError, async () => {
     let records = await listSessions();
     if (!Array.isArray(records)) records = [];
@@ -268,10 +289,10 @@ export function createSessionsHandler({ listSessions, readTitleSnapshots, truste
     }));
 
     writeJson(response, 200, { sessions });
-  });
+  }, admitRequest);
 }
 
-export function createTurnsHandler({ readSession, trustedHosts = [], onError = () => {} }) {
+export function createTurnsHandler({ readSession, trustedHosts = [], onError = () => {}, admitRequest }) {
   return (request, response) => handle(request, response, trustedHosts, onError, async () => {
     const value = await readJsonBody(request);
     const sessionId = sessionIdOf(value);
@@ -285,10 +306,10 @@ export function createTurnsHandler({ readSession, trustedHosts = [], onError = (
       hasTools: (entry.tools ?? []).length > 0,
     }));
     writeJson(response, 200, { turns });
-  });
+  }, admitRequest);
 }
 
-export function createBuildHandler({ readSession, trustedHosts = [], onError = () => {} }) {
+export function createBuildHandler({ readSession, trustedHosts = [], onError = () => {}, admitRequest }) {
   return (request, response) => handle(request, response, trustedHosts, onError, async () => {
     const value = await readJsonBody(request);
     const sessionId = sessionIdOf(value);
@@ -311,5 +332,5 @@ export function createBuildHandler({ readSession, trustedHosts = [], onError = (
       fragment: renderHtmlFragment(selected, title, { lang }),
       stats,
     });
-  });
+  }, admitRequest);
 }

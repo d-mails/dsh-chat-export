@@ -64,6 +64,18 @@ test('xhtmlBody self-closes void tags for foreignObject', () => {
   assert.equal(xhtmlBody('a<br>b<hr><img src="x">'), 'a<br/>b<hr/><img src="x"/>');
 });
 
+test('print fallback wraps the expanded PDF fragment', () => {
+  const { printDocumentFromFragment } = plugin.__test;
+  const html = printDocumentFromFragment({
+    title: 'T',
+    bodyHtml: '<details class="dsh-details" open><summary>Thinking</summary>body</details>',
+    style: '.dsh-export{color:red}',
+  });
+  assert.ok(html.includes('<body class="dsh-export">'));
+  assert.ok(html.includes('<details class="dsh-details" open>'));
+  assert.ok(html.includes('.dsh-export{color:red}'));
+});
+
 test('analyzePage picks a cut inside a uniform blank band', () => {
   const { analyzePage } = plugin.__test;
   const width = 40;

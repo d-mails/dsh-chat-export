@@ -27,7 +27,7 @@ function sampleEvents() {
         source: { kind: 'model', provider: 'p', model: 'm' },
         content: [
           { type: 'reasoning', text: '先想一想' },
-          { type: 'text', text: '答案是 42' },
+          { type: 'text', text: '先查一下' },
           { type: 'tool-call', id: 'c1', name: 'bash', arguments: '{"cmd":"ls"}' },
         ],
       },
@@ -37,11 +37,20 @@ function sampleEvents() {
       step: 2,
       message: { role: 'tool', toolCallId: 'c1', content: [{ type: 'text', text: 'file1 file2' }] },
     }, { seq: 4 }),
-    ev('turn/end', { turn: 1, reason: { kind: 'completed' } }, { seq: 5 }),
-    ev('turn/start', { turn: 2 }, { seq: 6 }),
-    surface('user/message', { role: 'user', source: { kind: 'user' }, content: [{ type: 'image', attachment: {} }] }, { seq: 7 }),
-    ev('turn/end', { turn: 2, reason: { kind: 'completed' } }, { seq: 8 }),
-    ev('session/title', { title: '测试对话' }, { seq: 9 }),
+    surface('assistant/message', {
+      turn: 1,
+      step: 3,
+      message: {
+        role: 'assistant',
+        source: { kind: 'model', provider: 'p', model: 'm' },
+        content: [{ type: 'text', text: '答案是 42' }],
+      },
+    }, { seq: 5, time: 1300 }),
+    ev('turn/end', { turn: 1, reason: { kind: 'completed' } }, { seq: 6 }),
+    ev('turn/start', { turn: 2 }, { seq: 7 }),
+    surface('user/message', { role: 'user', source: { kind: 'user' }, content: [{ type: 'image', attachment: {} }] }, { seq: 8 }),
+    ev('turn/end', { turn: 2, reason: { kind: 'completed' } }, { seq: 9 }),
+    ev('session/title', { title: '测试对话' }, { seq: 10 }),
   ];
 }
 
@@ -67,6 +76,51 @@ test('includes reasoning and tool calls when requested', () => {
   assert.equal(entries[0].tools[0].isError, false);
 });
 
+test('does not treat an intermediate assistant message with tool calls as the final answer', () => {
+  const events = [
+    ev('turn/start', { turn: 1 }, { seq: 1 }),
+    surface('user/message', { role: 'user', source: { kind: 'user' }, content: [{ type: 'text', text: 'q' }] }, { seq: 2 }),
+    surface('assistant/message', { turn: 1, step: 1, message: { role: 'assistant', source: { kind: 'model' }, content: [
+      { type: 'text', text: 'let me check' },
+      { type: 'tool-call', id: 'c1', name: 'bash', arguments: '{}' },
+    ] } }, { seq: 3 }),
+    surface('tool/result', { turn: 1, step: 2, message: { role: 'tool', toolCallId: 'c1', content: [{ type: 'text', text: 'ok' }] } }, { seq: 4 }),
+    ev('turn/end', { turn: 1, reason: { kind: 'completed' } }, { seq: 5 }),
+  ];
+  const { entries, stats } = extractConversation(events);
+  assert.equal(entries.length, 1);
+  assert.equal(entries[0].assistant, null);
+  assert.equal(stats.finalAssistants, 0);
+});
+
+test('prefers the last assistant message when it is a final reply after tool calls', () => {
+  const events = [
+    ev('turn/start', { turn: 1 }, { seq: 1 }),
+    surface('user/message', { role: 'user', source: { kind: 'user' }, content: [{ type: 'text', text: 'q' }] }, { seq: 2 }),
+    surface('assistant/message', { turn: 1, step: 1, message: { role: 'assistant', source: { kind: 'model' }, content: [
+      { type: 'text', text: 'let me check' },
+      { type: 'tool-call', id: 'c1', name: 'bash', arguments: '{}' },
+    ] } }, { seq: 3 }),
+    surface('tool/result', { turn: 1, step: 2, message: { role: 'tool', toolCallId: 'c1', content: [{ type: 'text', text: 'ok' }] } }, { seq: 4 }),
+    surface('assistant/message', { turn: 1, step: 3, message: { role: 'assistant', source: { kind: 'model' }, content: [{ type: 'text', text: 'final answer' }] } }, { seq: 5 }),
+    ev('turn/end', { turn: 1, reason: { kind: 'completed' } }, { seq: 6 }),
+  ];
+  const { entries } = extractConversation(events);
+  assert.equal(entries[0].assistant, 'final answer');
+});
+
+test('a tool/call event after commentary invalidates the final answer', () => {
+  const events = [
+    ev('turn/start', { turn: 1 }, { seq: 1 }),
+    surface('user/message', { role: 'user', source: { kind: 'user' }, content: [{ type: 'text', text: 'q' }] }, { seq: 2 }),
+    surface('assistant/message', { turn: 1, step: 1, message: { role: 'assistant', source: { kind: 'model' }, content: [{ type: 'text', text: 'commentary' }] } }, { seq: 3 }),
+    ev('tool/call', { turn: 1, step: 1, callId: 'c1', name: 'bash', arguments: '{}' }, { seq: 4 }),
+    ev('turn/end', { turn: 1, reason: { kind: 'completed' } }, { seq: 5 }),
+  ];
+  const { entries } = extractConversation(events);
+  assert.equal(entries[0].assistant, null);
+});
+
 test('ignores non-user injected messages and injection-only turns', () => {  const events = [
     ev('turn/start', { turn: 1 }, { seq: 1 }),
     surface('user/message', { role: 'user', source: { kind: 'system-prompt' }, content: [{ type: 'text', text: 'injected' }] }, { seq: 2 }),
@@ -75,6 +129,19 @@ test('ignores non-user injected messages and injection-only turns', () => {  con
   const { entries, stats } = extractConversation(events);
   assert.equal(entries.length, 0);
   assert.equal(stats.injectedUserMessages, 1);
+});
+
+test('treats a goal source message as a human turn', () => {
+  const events = [
+    ev('turn/start', { turn: 1 }, { seq: 1 }),
+    surface('user/message', { role: 'user', source: { kind: 'goal' }, content: [{ type: 'text', text: '<goal_round>\nObjective: "研究导出插件"' }] }, { seq: 2 }),
+    surface('assistant/message', { turn: 1, step: 1, message: { role: 'assistant', source: { kind: 'model' }, content: [{ type: 'text', text: 'done' }] } }, { seq: 3 }),
+    ev('turn/end', { turn: 1, reason: { kind: 'completed' } }, { seq: 4 }),
+  ];
+  const { entries } = extractConversation(events);
+  assert.equal(entries.length, 1);
+  assert.ok(entries[0].humans[0].includes('研究导出插件'));
+  assert.equal(entries[0].assistant, 'done');
 });
 
 test('closes an open fenced code block at message end', () => {
@@ -87,6 +154,37 @@ test('closes an open fenced code block at message end', () => {
   const { entries } = extractConversation(events);
   const markdown = renderMarkdown(entries, 'T');
   assert.ok(markdown.includes('const a = 1;\n```'));
+});
+
+test('tool results with triple backticks cannot escape their fenced block', () => {
+  const entries = [{
+    turn: 1,
+    humans: ['q'],
+    assistant: 'a',
+    reasoning: null,
+    tools: [{
+      name: 'bash',
+      arguments: '{}',
+      result: 'before\n```\n## INJECTED\n[click](https://evil.example)\n```',
+      isError: false,
+    }],
+  }];
+  const markdown = renderMarkdown(entries, 'T');
+  assert.ok(markdown.includes('````text'));
+  assert.ok(markdown.indexOf('## INJECTED') < markdown.indexOf('</details>'));
+});
+
+test('reasoning text cannot close the generated details wrapper', () => {
+  const entries = [{
+    turn: 1,
+    humans: ['q'],
+    assistant: 'a',
+    reasoning: 'before\n</details>\n# after',
+    tools: [],
+  }];
+  const markdown = renderMarkdown(entries, 'T');
+  assert.ok(markdown.includes('&lt;/details>'));
+  assert.ok(!markdown.includes('\n</details>\n# after'));
 });
 
 test('markdownToHtml renders common blocks and escapes html', () => {
@@ -110,6 +208,14 @@ test('links allow http and reject javascript urls', () => {
   assert.ok(!/href="javascript:/iu.test(bad));
 });
 
+test('bare autolinks escape quotes in href attributes', () => {
+  const html = markdownToHtml('https://example.com/"onmouseover="alert(1)');
+  assert.ok(!html.includes('href="https://example.com/"onmouseover'));
+  assert.ok(html.includes('&quot;onmouseover=&quot;'));
+  const ok = markdownToHtml('https://example.com/a?x=1&y=2');
+  assert.ok(ok.includes('href="https://example.com/a?x=1&amp;y=2"'));
+});
+
 test('image note localizes', () => {
   assert.ok(markdownToHtml('![alt](u)').includes('[Image: alt]'));
   assert.ok(markdownToHtml('![alt](u)', 'zh').includes('[图片：alt]'));
@@ -126,6 +232,20 @@ test('renderHtmlDocument is a full document and renderHtmlFragment returns parts
   assert.ok(frag.style.includes('.dsh-export'));
 });
 
+test('renderHtmlFragment opens reasoning and tool details for PDF rendering', () => {
+  const entries = [{
+    turn: 1,
+    humans: ['q'],
+    assistant: 'a',
+    reasoning: 'think',
+    tools: [{ name: 'bash', arguments: '{}', result: 'ok', isError: false }],
+  }];
+  const frag = renderHtmlFragment(entries, 'T');
+  assert.ok(frag.bodyHtml.includes('<details class="dsh-details" open>'));
+  const doc = renderHtmlDocument(entries, 'T');
+  assert.ok(!doc.includes('class="dsh-details" open'));
+});
+
 test('selectEntries supports include, exclude and bits', () => {
   const entries = [{}, {}, {}, {}];
   assert.equal(selectEntries(entries).length, 4);
@@ -135,6 +255,20 @@ test('selectEntries supports include, exclude and bits', () => {
   const bits = Buffer.from(bytes).toString('base64');
   assert.equal(selectEntries(entries, { bits, count: 4 }).length, 2);
   assert.throws(() => selectEntries(entries, { include: [], count: 4 }));
+});
+
+test('ignores unknown surface event types instead of failing the export', () => {
+  const events = [
+    ev('turn/start', { turn: 1 }, { seq: 1 }),
+    surface('user/message', { role: 'user', source: { kind: 'user' }, content: [{ type: 'text', text: 'q' }] }, { seq: 2 }),
+    surface('assistant/notice', { text: 'new event type' }, { seq: 3 }),
+    surface('assistant/message', { turn: 1, step: 1, message: { role: 'assistant', source: { kind: 'model' }, content: [{ type: 'text', text: 'a' }] } }, { seq: 4 }),
+    ev('turn/end', { turn: 1, reason: { kind: 'completed' } }, { seq: 5 }),
+  ];
+  const { entries, stats } = extractConversation(events);
+  assert.equal(entries.length, 1);
+  assert.equal(entries[0].assistant, 'a');
+  assert.ok(stats.unknownEvents >= 1);
 });
 
 test('ignores system and developer surface messages, even outside a turn', () => {
@@ -184,18 +318,40 @@ test('unparseable dsh-ui fence degrades to a note', () => {
   assert.ok(!out.includes('dsh-ui'));
 });
 
-test('skips replacement surface events outside a turn bracket (rewind/compaction)', () => {
+test('hides messages covered by a rewind replacement range', () => {
   const events = [
-    surface('user/message', { role: 'user', source: { kind: 'dsh-rewind' }, content: [{ type: 'text', text: 'rewound' }] }, { seq: 1, surfaceOp: { op: 'replace', startSeq: 1, endSeq: 2 } }),
-    ev('turn/start', { turn: 1 }, { seq: 2 }),
-    surface('user/message', { role: 'user', source: { kind: 'user' }, content: [{ type: 'text', text: 'hi' }] }, { seq: 3 }),
-    surface('assistant/message', { turn: 1, step: 1, message: { role: 'assistant', source: { kind: 'model' }, content: [{ type: 'text', text: 'yo' }] } }, { seq: 4 }),
-    ev('turn/end', { turn: 1, reason: { kind: 'completed' } }, { seq: 5 }),
+    ev('turn/start', { turn: 1 }, { seq: 1 }),
+    surface('user/message', { role: 'user', source: { kind: 'user' }, content: [{ type: 'text', text: 'old question' }] }, { seq: 2 }),
+    surface('assistant/message', { turn: 1, step: 1, message: { role: 'assistant', source: { kind: 'model' }, content: [{ type: 'text', text: 'old answer' }] } }, { seq: 3 }),
+    ev('turn/end', { turn: 1, reason: { kind: 'completed' } }, { seq: 4 }),
+    surface('user/message', { role: 'user', source: { kind: 'dsh-rewind' }, content: [{ type: 'text', text: '(empty message)' }] }, { seq: 5, surfaceOp: { op: 'replace', startSeq: 2, endSeq: 3 } }),
+    ev('turn/start', { turn: 2 }, { seq: 6 }),
+    surface('user/message', { role: 'user', source: { kind: 'user' }, content: [{ type: 'text', text: 'new question' }] }, { seq: 7 }),
+    surface('assistant/message', { turn: 2, step: 1, message: { role: 'assistant', source: { kind: 'model' }, content: [{ type: 'text', text: 'new answer' }] } }, { seq: 8 }),
+    ev('turn/end', { turn: 2, reason: { kind: 'completed' } }, { seq: 9 }),
   ];
   const { entries, stats } = extractConversation(events);
   assert.equal(entries.length, 1);
-  assert.equal(entries[0].assistant, 'yo');
+  assert.deepEqual(entries[0].humans, ['new question']);
+  assert.equal(entries[0].assistant, 'new answer');
   assert.ok(stats.replacements >= 1);
+});
+
+test('keeps earlier messages covered by a compaction checkpoint', () => {
+  const events = [
+    ev('turn/start', { turn: 1 }, { seq: 1 }),
+    surface('user/message', { role: 'user', source: { kind: 'user' }, content: [{ type: 'text', text: 'old question' }] }, { seq: 2 }),
+    surface('assistant/message', { turn: 1, step: 1, message: { role: 'assistant', source: { kind: 'model' }, content: [{ type: 'text', text: 'old answer' }] } }, { seq: 3 }),
+    ev('turn/end', { turn: 1, reason: { kind: 'completed' } }, { seq: 4 }),
+    surface('user/message', { role: 'user', source: { kind: 'compact-checkpoint' }, content: [{ type: 'text', text: '<compacted-summary>summary</compacted-summary>' }] }, { seq: 5, surfaceOp: { op: 'replace', startSeq: 2, endSeq: 3 } }),
+    ev('turn/start', { turn: 2 }, { seq: 6 }),
+    surface('user/message', { role: 'user', source: { kind: 'user' }, content: [{ type: 'text', text: 'new question' }] }, { seq: 7 }),
+    surface('assistant/message', { turn: 2, step: 1, message: { role: 'assistant', source: { kind: 'model' }, content: [{ type: 'text', text: 'new answer' }] } }, { seq: 8 }),
+    ev('turn/end', { turn: 2, reason: { kind: 'completed' } }, { seq: 9 }),
+  ];
+  const { entries } = extractConversation(events);
+  assert.equal(entries.length, 2);
+  assert.deepEqual(entries.map((entry) => entry.humans[0]), ['old question', 'new question']);
 });
 
 test('renderMarkdown skips entries left with no humans and no assistant', () => {

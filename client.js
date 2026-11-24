@@ -227,6 +227,26 @@ window.__ModuleLoader__.load({
       setTimeout(() => URL.revokeObjectURL(url), 1000);
     }
 
+    // Wrap the PDF fragment in a standalone document. The fragment is built
+    // with its details expanded so the print fallback does not silently drop
+    // reasoning or tool sections.
+    function printDocumentFromFragment(fragment) {
+      const escape = (value) => String(value).replace(/[&<>]/gu, (character) => ({
+        '&': '&amp;', '<': '&lt;', '>': '&gt;',
+      }[character]));
+      return `<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>${escape(fragment?.title ?? '')}</title>
+<style>${fragment?.style ?? ''}</style>
+</head>
+<body class="dsh-export">
+${fragment?.bodyHtml ?? ''}
+</body>
+</html>`;
+    }
+
     // Last-resort PDF path: show the exported HTML in a hidden iframe and open
     // the browser print dialog, where the user can choose "Save as PDF".
     function printHtmlDocument(html) {
@@ -591,7 +611,8 @@ window.__ModuleLoader__.load({
               setNote(t('exported', { name: stem + '.pdf' }));
             } catch (pdfError) {
               const reason = errorMessage(pdfError);
-              if (printHtmlDocument(value.html)) {
+              const printHtml = value.fragment === undefined ? value.html : printDocumentFromFragment(value.fragment);
+              if (printHtmlDocument(printHtml)) {
                 setNote(t('pdfFallbackNote', { reason }));
               } else {
                 saveBlob(new Blob([value.html], { type: 'text/html;charset=utf-8' }), stem + '.html');
@@ -844,7 +865,7 @@ window.__ModuleLoader__.load({
 
     return {
       inject: ['slots', 'locale'],
-      __test: { assemblePdf, compactSelection, xhtmlBody, analyzePage, i18nDict: I18N_DICT, translate: t, currentLang },
+      __test: { assemblePdf, compactSelection, printDocumentFromFragment, xhtmlBody, analyzePage, i18nDict: I18N_DICT, translate: t, currentLang },
       apply(ctx) {
         try {
           const locale = ctx.get?.('locale');

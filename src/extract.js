@@ -3,11 +3,11 @@
  *
  * Deterministic rules:
  *  1. A human turn is a turn bracket containing at least one append-origin
- *     `user/message` whose `source.kind === 'user'`. Plugin/goal/skill
+ *     `user/message` whose `source.kind` is `user` or `goal`. Plugin/skill
  *     injections and injection-only turns are excluded.
  *  2. The final assistant response of a turn is the last append-origin
- *     `assistant/message` with non-empty visible text. Intermediate steps never
- *     render as the answer.
+ *     `assistant/message` with non-empty visible text, only when no tool call
+ *     follows it in the turn. Intermediate steps never render as the answer.
  *  3. Only `text` content blocks render verbatim. `reasoning` blocks are kept
  *     separately and rendered only when `includeReasoning` is true. `tool-call`
  *     blocks and `tool/result` events are kept separately and rendered only when
@@ -15,8 +15,9 @@
  *  4. A human message with no visible text (e.g. image-only) renders the neutral
  *     placeholder `[Image omitted]`.
  *  5. A turn without a final assistant response renders no assistant section.
- *  6. Replacement-origin surface events (compaction) are model-only shadowing and
- *     are skipped; append-origin events are the durable transcript source.
+ *  6. A `dsh-rewind` replacement hides the append-origin messages it covers.
+ *     Compaction replacements are model-only shadowing and leave the durable
+ *     transcript intact.
  *  7. The latest usable log-only `session/title` wins.
  */
 
@@ -36,9 +37,33 @@ const KNOWN_LOG_ONLY_TYPES = new Set([
 const UNSAFE_TITLE_CHARACTER = /[\u0000-\u001F\u007F-\u009F\u200B\u200E\u200F\u202A-\u202E\u2060-\u2064\u2066-\u206F\uFEFF]/u;
 
 const IMAGE_OMITTED_PLACEHOLDER = '[Image omitted]';
+const HUMAN_SOURCE_KINDS = new Set(['user', 'goal']);
 
 function isRecord(value) {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+/** Collect the append-origin ranges hidden by explicit user rewinds. */
+function collectRewindRanges(events) {
+  const ranges = [];
+  for (const event of events) {
+    const operation = event?.surfaceOp;
+    if (event?.type !== 'user/message'
+      || !isRecord(operation)
+      || operation.op !== 'replace'
+      || event.data?.source?.kind !== 'dsh-rewind') continue;
+    const start = operation.startSeq;
+    const end = operation.endSeq;
+    if (Number.isSafeInteger(start) && Number.isSafeInteger(end) && start <= end) {
+      ranges.push({ start, end });
+    }
+  }
+  return ranges;
+}
+
+function isRewound(seq, ranges) {
+  if (!Number.isSafeInteger(seq)) return false;
+  return ranges.some((range) => seq >= range.start && seq <= range.end);
 }
 
 function createStats() {
@@ -118,11 +143,17 @@ export function extractConversation(events, options = {}) {
 
   const stats = createStats();
   const turns = [];
+  const rewoundRanges = collectRewindRanges(events);
   let current = null;
   let title = null;
 
   for (const event of events) {
     const type = event?.type;
+
+    // A rewind replaces a previous slice of the transcript; keep the durable
+    // append history for compaction, but hide the messages explicitly undone
+    // by the user.
+    if (SURFACE_TYPES.has(type) && isRewound(event.seq, rewoundRanges)) continue;
 
     if (type === 'session/title') {
       const candidate = event.data?.title;
@@ -142,6 +173,7 @@ export function extractConversation(events, options = {}) {
         humanCount: 0,
         humans: [],
         assistants: [],
+        answerCandidate: null,
         toolCalls: [],
         toolResults: new Map(),
       };
@@ -162,7 +194,11 @@ export function extractConversation(events, options = {}) {
       // turn bracket.
       if (type === 'system/message' || type === 'developer/message') continue;
       if (!SURFACE_TYPES.has(type)) {
-        throw new Error(`unrecognized surface event type "${type}" (seq ${event.seq})`);
+        // New DSH releases may add surface event kinds. Do not let one unknown
+        // event make the whole conversation unexportable; count it for
+        // diagnostics and keep the known transcript intact.
+        stats.unknownEvents++;
+        continue;
       }
       if (event.surfaceOp !== 'append') {
         // Replacement copies (compaction, rewind) are model-only shadowing and
@@ -175,7 +211,7 @@ export function extractConversation(events, options = {}) {
       }
       if (type === 'user/message') {
         const message = event.data;
-        if (isRecord(message?.source) && message.source.kind === 'user') {
+        if (isRecord(message?.source) && HUMAN_SOURCE_KINDS.has(message.source.kind)) {
           current.humanCount++;
           const text = analyzeContent(message.content, stats, {});
           current.humans.push(text.trim() !== '' ? text : IMAGE_OMITTED_PLACEHOLDER);
@@ -197,8 +233,16 @@ export function extractConversation(events, options = {}) {
           text,
           reasoning: sink.reasoning.join('\n\n'),
         });
+        if (text.trim() !== '') {
+          current.answerCandidate = { text, toolCalls: sink.toolCalls.length };
+        } else if (sink.toolCalls.length > 0) {
+          // A tool-only step after the previous text means that text was not a
+          // final reply; the turn is still in progress or ended without one.
+          current.answerCandidate = null;
+        }
       } else if (type === 'tool/result') {
         stats.toolResults++;
+        current.answerCandidate = null;
         const message = event.data?.message;
         const callId = typeof message?.toolCallId === 'string' ? message.toolCallId : '';
         let resultText = '';
@@ -217,6 +261,13 @@ export function extractConversation(events, options = {}) {
       continue;
     }
 
+    if (type === 'tool/call') {
+      // A tool call is a turn segment after the preceding assistant text; the
+      // text is commentary, not the final reply.
+      if (current !== null) current.answerCandidate = null;
+      continue;
+    }
+
     if (KNOWN_LOG_ONLY_TYPES.has(type)) continue;
     stats.unknownEvents++;
   }
@@ -226,7 +277,7 @@ export function extractConversation(events, options = {}) {
     if (turn.humanCount === 0) continue;
     stats.humanTurns++;
 
-    const answer = [...turn.assistants].reverse().find((item) => item.text.trim() !== '');
+    const answer = turn.answerCandidate?.toolCalls === 0 ? turn.answerCandidate : null;
     const reasoning = includeReasoning
       ? turn.assistants.map((item) => item.reasoning).filter((value) => value.trim() !== '').join('\n\n')
       : '';
