@@ -302,13 +302,18 @@ export function createTurnsHandler({ readSession, trustedHosts = [], onError = (
     const value = await readJsonBody(request);
     const sessionId = sessionIdOf(value);
     const snapshot = canonicalSnapshot(sessionId, await readSession(sessionId));
-    const { entries } = extractConversation(snapshot.events, { includeReasoning: true, includeTools: true });
+    const { entries } = extractConversation(snapshot.events, {
+      includeReasoning: false,
+      includeTools: false,
+      metadataOnly: true,
+      maxTextChars: 400,
+    });
     const turns = entries.map((entry, index) => ({
       index,
       human: shortPreview(entry.humans.join(' / ')),
       assistant: entry.assistant === null ? null : shortPreview(entry.assistant),
-      hasReasoning: entry.reasoning !== null,
-      hasTools: (entry.tools ?? []).length > 0,
+      hasReasoning: entry.hasReasoning === true,
+      hasTools: entry.hasTools === true,
     }));
     writeJson(response, 200, { turns });
   }, admitRequest);

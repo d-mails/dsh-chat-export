@@ -101,8 +101,10 @@ function attachmentLabel(block, kind) {
 }
 
 /** Join the visible text blocks of a message, collecting reasoning and tool calls. */
-function analyzeContent(content, stats, sink) {
+function analyzeContent(content, stats, sink, analysis = {}) {
   if (!Array.isArray(content)) return '';
+  const metadataOnly = analysis.metadataOnly === true;
+  const maxTextChars = Number.isSafeInteger(analysis.maxTextChars) ? Math.max(1, analysis.maxTextChars) : null;
   const parts = [];
   for (const block of content) {
     if (!isRecord(block) || typeof block.type !== 'string') {
@@ -110,20 +112,26 @@ function analyzeContent(content, stats, sink) {
       continue;
     }
     if (block.type === 'text') {
-      if (typeof block.text === 'string' && block.text.trim() !== '') parts.push(block.text);
+      if (typeof block.text === 'string' && block.text.trim() !== '') {
+        parts.push(maxTextChars === null ? block.text : truncateText(block.text, maxTextChars));
+      }
     } else if (block.type === 'reasoning') {
       stats.reasoningBlocks++;
       if (typeof block.text === 'string' && block.text.trim() !== '') {
-        (sink.reasoning ??= []).push(block.text);
+        if (metadataOnly) sink.hasReasoning = true;
+        else (sink.reasoning ??= []).push(block.text);
       }
     } else if (block.type === 'tool-call') {
       stats.toolCallBlocks++;
       if (isRecord(sink) && typeof block.name === 'string') {
-        (sink.toolCalls ??= []).push({
-          id: typeof block.id === 'string' ? block.id : '',
-          name: block.name,
-          arguments: typeof block.arguments === 'string' ? block.arguments : '',
-        });
+        if (metadataOnly) sink.hasTools = true;
+        else {
+          (sink.toolCalls ??= []).push({
+            id: typeof block.id === 'string' ? block.id : '',
+            name: block.name,
+            arguments: typeof block.arguments === 'string' ? block.arguments : '',
+          });
+        }
       }
     } else if (block.type === 'tool-result') {
       stats.toolResultBlocks++;
@@ -166,6 +174,9 @@ export function extractConversation(events, options = {}) {
   const maxToolResultChars = Number.isSafeInteger(options.maxToolResultChars)
     ? Math.max(200, options.maxToolResultChars)
     : 4000;
+  const metadataOnly = options.metadataOnly === true;
+  const maxTextChars = Number.isSafeInteger(options.maxTextChars) ? Math.max(1, options.maxTextChars) : null;
+  const analysis = { metadataOnly, maxTextChars };
 
   const stats = createStats();
   const turns = [];
@@ -200,6 +211,8 @@ export function extractConversation(events, options = {}) {
         humans: [],
         assistants: [],
         answerCandidate: null,
+        hasReasoning: false,
+        hasTools: false,
         toolCalls: [],
         toolResults: new Map(),
       };
@@ -239,7 +252,7 @@ export function extractConversation(events, options = {}) {
         const message = event.data;
         if (isRecord(message?.source) && HUMAN_SOURCE_KINDS.has(message.source.kind)) {
           current.humanCount++;
-          const text = analyzeContent(message.content, stats, {});
+          const text = analyzeContent(message.content, stats, {}, analysis);
           current.humans.push(text.trim() !== '' ? text : IMAGE_OMITTED_PLACEHOLDER);
           stats.humanMessages++;
         } else {
@@ -247,12 +260,14 @@ export function extractConversation(events, options = {}) {
         }
       } else if (type === 'assistant/message') {
         stats.assistantMessages++;
-        const sink = { reasoning: [], toolCalls: [] };
-        const text = analyzeContent(event.data?.message?.content, stats, sink);
+        const sink = { reasoning: [], toolCalls: [], hasReasoning: false, hasTools: false };
+        const text = analyzeContent(event.data?.message?.content, stats, sink, analysis);
         if (sink.toolCalls.length > 0) {
           stats.toolCalls += sink.toolCalls.length;
-          current.toolCalls.push(...sink.toolCalls);
+          if (!metadataOnly) current.toolCalls.push(...sink.toolCalls);
         }
+        if (sink.hasReasoning || sink.reasoning.length > 0) current.hasReasoning = true;
+        if (sink.hasTools || sink.toolCalls.length > 0) current.hasTools = true;
         current.assistants.push({
           seq: event.seq,
           time: typeof event.time === 'number' ? event.time : null,
@@ -269,6 +284,7 @@ export function extractConversation(events, options = {}) {
       } else if (type === 'tool/result') {
         stats.toolResults++;
         current.answerCandidate = null;
+        current.hasTools = true;
         const message = event.data?.message;
         const callId = typeof message?.toolCallId === 'string' ? message.toolCallId : '';
         let resultText = '';
@@ -297,7 +313,10 @@ export function extractConversation(events, options = {}) {
     if (type === 'tool/call') {
       // A tool call is a turn segment after the preceding assistant text; the
       // text is commentary, not the final reply.
-      if (current !== null) current.answerCandidate = null;
+      if (current !== null) {
+        current.answerCandidate = null;
+        current.hasTools = true;
+      }
       continue;
     }
 
@@ -322,6 +341,8 @@ export function extractConversation(events, options = {}) {
       assistant: answer ? answer.text : null,
       reasoning: reasoning.trim() !== '' ? reasoning : null,
       tools: [],
+      hasReasoning: turn.hasReasoning,
+      hasTools: turn.hasTools,
     };
 
     if (answer) stats.finalAssistants++;

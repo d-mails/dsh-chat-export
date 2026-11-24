@@ -155,6 +155,30 @@ test('ignores non-user injected messages and injection-only turns', () => {  con
   assert.equal(stats.injectedUserMessages, 1);
 });
 
+test('metadata-only extraction keeps flags while truncating text', () => {
+  const events = [
+    ev('turn/start', { turn: 1 }, { seq: 1 }),
+    surface('user/message', { role: 'user', source: { kind: 'user' }, content: [{ type: 'text', text: 'q'.repeat(1000) }] }, { seq: 2 }),
+    surface('assistant/message', { turn: 1, step: 1, message: { role: 'assistant', source: { kind: 'model' }, content: [
+      { type: 'reasoning', text: 'r'.repeat(1000) },
+      { type: 'text', text: 's'.repeat(1000) },
+      { type: 'tool-call', id: 'c1', name: 'bash', arguments: 'x'.repeat(1000) },
+    ] } }, { seq: 3 }),
+    surface('assistant/message', { turn: 1, step: 2, message: { role: 'assistant', source: { kind: 'model' }, content: [{ type: 'text', text: 'final' }] } }, { seq: 4 }),
+    ev('turn/end', { turn: 1, reason: { kind: 'completed' } }, { seq: 5 }),
+  ];
+  const { entries } = extractConversation(events, {
+    includeReasoning: false,
+    includeTools: false,
+    metadataOnly: true,
+    maxTextChars: 40,
+  });
+  assert.equal(entries[0].hasReasoning, true);
+  assert.equal(entries[0].hasTools, true);
+  assert.ok(entries[0].humans[0].length < 1000);
+  assert.ok(entries[0].assistant.length < 1000);
+});
+
 test('renders image and file attachments as readable labels', () => {
   const events = [
     ev('turn/start', { turn: 1 }, { seq: 1 }),
