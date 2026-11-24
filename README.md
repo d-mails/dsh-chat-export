@@ -42,15 +42,15 @@ Restart `dsh web` (or reopen DSH) after installing; the “Export chat” button
 
 ## Compatibility
 
-- Developed and verified on `@deepseek-ai/dsh@0.2.2-rc.3` (Web).
+- Developed and verified against `@deepseek-ai/dsh@0.2.2-rc.5` (Web) APIs.
 - DSH evolves quickly and plugin APIs may change. If the plugin breaks after a DSH upgrade, check the current `sessionQuery` / `webServer` contracts.
 
 ## Notes and limitations
 
-- PDF export rasterizes the exported HTML into a multi-page PDF of **full-page images**. Page breaks are chosen inside whitespace bands of the real rendering, so text lines are never cut. Because pages are images, PDF text is **not selectable/searchable** and files are larger; generation time grows with conversation length (long chats can be dozens of pages), and there is currently no progress bar or cancel.
-- If the environment cannot generate the PDF directly (or the conversation is too long), it opens a print view so you can “Save as PDF”, and keeps an HTML fallback download.
+- PDF export rasterizes the exported HTML into a multi-page PDF of **full-page images**. Page breaks are chosen inside whitespace bands of the real rendering; extremely dense blocks without a usable band may still be cut. Because pages are images, PDF text is **not selectable/searchable** and files are larger; generation time grows with conversation length (long chats can be dozens of pages), and there is currently no progress bar or cancel.
+- If the environment cannot generate the PDF directly (or the conversation is too long), it opens a print view so you can “Save as PDF”; if the print view itself cannot open, it downloads HTML instead.
 - Only human messages and each turn’s final assistant reply are exported; intermediate assistant steps are not separate sections (their thinking/tool calls are folded into the turn when those options are enabled).
-- Image messages are represented as placeholder text; images are not embedded. The Markdown converter does not support math, deeply nested lists, or other advanced syntax.
+- Image and file attachments are represented as readable labels (name, dimensions, size); attachment bytes are not embedded. The Markdown converter does not support math, deeply nested lists, or other advanced syntax.
 - The session list shows at most 300 sessions and excludes subagent sessions.
 - “Ignore questioner content” is a global toggle, not a per-turn option.
 

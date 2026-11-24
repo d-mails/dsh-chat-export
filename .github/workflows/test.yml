@@ -10,16 +10,19 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        node: [20, 22]
+        node: [20, 22, 24]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ matrix.node }}
-      - name: Syntax check
+      - name: Syntax and locale checks
         run: |
           node --check index.js
           node --check client.js
-          for f in src/*.js; do node --check "$f"; done
+          for f in src/*.js test/*.js; do node --check "$f"; done
+          node -e "for (const f of ['locale/en.json','locale/zh.json']) JSON.parse(require('node:fs').readFileSync(f, 'utf8'))"
       - name: Unit tests
         run: node --test test/core.test.js test/client.test.js test/handlers.test.js
+      - name: Package contents
+        run: npm pack --dry-run
