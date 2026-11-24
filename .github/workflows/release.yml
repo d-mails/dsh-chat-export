@@ -1,0 +1,31 @@
+name: release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+      - name: Verify tag matches package version
+        run: |
+          node -e "const pkg = require('./package.json'); const tag = process.env.GITHUB_REF_NAME; const expected = 'v' + pkg.version; if (tag !== expected) { console.error('tag ' + tag + ' does not match package version ' + pkg.version); process.exit(1); }"
+      - name: Unit tests
+        run: npm test
+      - name: Package contents
+        run: npm pack --dry-run
+      - name: Publish
+        run: npm publish --provenance --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

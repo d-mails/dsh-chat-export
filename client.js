@@ -317,6 +317,26 @@ ${fragment?.bodyHtml ?? ''}
     const A4W = 794;   // A4 at 96dpi
     const A4H = 1123;
     const SCALE = 2;
+    const MAX_PDF_PAGES = 150;
+
+    function measureExportHeight(fragment) {
+      if (typeof document === 'undefined') return null;
+      const host = document.createElement('div');
+      host.style.cssText = 'position:absolute;left:-100000px;top:0;width:' + A4W + 'px;visibility:hidden;';
+      const style = document.createElement('style');
+      style.textContent = cssForRaster(fragment.style);
+      host.appendChild(style);
+      const content = document.createElement('div');
+      content.className = 'dsh-export';
+      content.innerHTML = xhtmlBody(fragment.bodyHtml);
+      host.appendChild(content);
+      document.body.appendChild(host);
+      try {
+        return content.getBoundingClientRect().height;
+      } finally {
+        host.remove();
+      }
+    }
 
     function cssForRaster(style) {
       return String(style).replace(/body\.dsh-export/gu, '.dsh-export')
@@ -490,6 +510,10 @@ ${fragment?.bodyHtml ?? ''}
     }
 
     async function buildPdfBlob(fragment) {
+      const estimatedHeight = measureExportHeight(fragment);
+      if (estimatedHeight !== null && estimatedHeight > A4H * (MAX_PDF_PAGES + 2)) {
+        throw new Error(t('tooManyPages', { pages: MAX_PDF_PAGES }));
+      }
       const css = cssForRaster(fragment.style);
       const bodyHtml = fragment.bodyHtml;
       const renderHeight = A4H + PAGE_SLACK;
@@ -520,8 +544,8 @@ ${fragment?.bodyHtml ?? ''}
         page.width = canvas.width;
         page.height = cutPx;
         page.getContext('2d').drawImage(canvas, 0, 0, canvas.width, cutPx, 0, 0, canvas.width, cutPx);
-        if (jpegPages.length >= 150) {
-          throw new Error(t('tooManyPages', { pages: 150 }));
+        if (jpegPages.length >= MAX_PDF_PAGES) {
+          throw new Error(t('tooManyPages', { pages: MAX_PDF_PAGES }));
         }
         pushCanvas(page);
         start += cutCss;
