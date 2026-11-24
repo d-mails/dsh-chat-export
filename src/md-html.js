@@ -43,11 +43,11 @@ function inline(raw, lang = 'en') {
   text = text.replace(/`([^`\n]+)`/gu, (_match, code) => stash(`<code>${escapeHtml(code)}</code>`));
 
   // Images: keep the alt text, never embed remote sources.
-  text = text.replace(/!\[([^\]]*)\]\(([^)\s]*)(?:\s+"[^"]*")?\)/gu, (_match, alt) =>
+  text = text.replace(/!\[([^\]]*)\]\(((?:[^()\s]|\([^()\s]*\))*)(?:\s+"[^"]*")?\)/gu, (_match, alt) =>
     stash(`<span class="dsh-img-note">${lang === 'zh' ? `[图片${alt ? `：${escapeHtml(alt)}` : ''}]` : `[Image${alt ? `: ${escapeHtml(alt)}` : ''}]`}</span>`));
 
-  // Links.
-  text = text.replace(/\[([^\]]+)\]\(([^)\s]*)(?:\s+"[^"]*")?\)/gu, (match, label, url) => {
+  // Links. One level of balanced parentheses is allowed in the destination.
+  text = text.replace(/\[([^\]]+)\]\(((?:[^()\s]|\([^()\s]*\))*)(?:\s+"[^"]*")?\)/gu, (match, label, url) => {
     const href = safeUrl(url);
     if (href === null) return stash(escapeHtml(label));
     return stash(`<a href="${escapeAttr(href)}" target="_blank" rel="noopener noreferrer">${inline(label, lang)}</a>`);
@@ -68,7 +68,7 @@ function inline(raw, lang = 'en') {
   text = text.replace(/\*\*([^*]+)\*\*/gu, '<strong>$1</strong>');
   text = text.replace(/__([^_]+)__/gu, '<strong>$1</strong>');
   text = text.replace(/(^|[^*])\*([^*\n]+)\*/gu, '$1<em>$2</em>');
-  text = text.replace(/(^|[^_])_([^_\n]+)_/gu, '$1<em>$2</em>');
+  text = text.replace(/(^|[^\w])_([^_\n]+)_(?=[^\w]|$)/gu, '$1<em>$2</em>');
   text = text.replace(/~~([^~]+)~~/gu, '<del>$1</del>');
 
   text = text.replace(/\n/gu, '<br>');

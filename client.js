@@ -319,7 +319,9 @@ ${fragment?.bodyHtml ?? ''}
     const SCALE = 2;
 
     function cssForRaster(style) {
-      return String(style).replace(/body\.dsh-export/gu, '.dsh-export') + '\n.dsh-export{width:' + A4W + 'px;background:#ffffff}';
+      return String(style).replace(/body\.dsh-export/gu, '.dsh-export')
+        + '\n.dsh-export{width:' + A4W + 'px;background:#ffffff}'
+        + '\n.dsh-md pre.dsh-code code{white-space:pre-wrap;overflow-wrap:anywhere}';
     }
 
     function xhtmlBody(html) {
@@ -543,7 +545,7 @@ ${fragment?.bodyHtml ?? ''}
     function ChatExportAction({ sessionId }) {
       useLocaleStore(subscribeLocale, getLocaleRevision);
       const [open, setOpen] = useState(false);
-      const [sessions, setSessions] = useState({ status: 'idle', list: [], error: null });
+      const [sessions, setSessions] = useState({ status: 'idle', list: [], error: null, loadedAt: 0 });
       const [target, setTarget] = useState(sessionId);
       const [turns, setTurns] = useState({ status: 'idle', list: [], error: null });
       const [selected, setSelected] = useState(() => new Set());
@@ -602,14 +604,19 @@ ${fragment?.bodyHtml ?? ''}
 
       async function loadSessions() {
         const request = ++sessionsRequest.current;
-        setSessions({ status: 'loading', list: [], error: null });
+        setSessions((current) => ({ ...current, status: 'loading', error: null }));
         try {
           const value = await postJson(SESSIONS_PATH, {});
           if (request !== sessionsRequest.current) return;
-          setSessions({ status: 'ready', list: Array.isArray(value.sessions) ? value.sessions : [], error: null });
+          setSessions({
+            status: 'ready',
+            list: Array.isArray(value.sessions) ? value.sessions : [],
+            error: null,
+            loadedAt: Date.now(),
+          });
         } catch (caught) {
           if (request !== sessionsRequest.current) return;
-          setSessions({ status: 'error', list: [], error: errorMessage(caught) });
+          setSessions((current) => ({ ...current, status: 'error', error: errorMessage(caught) }));
         }
       }
 
@@ -634,7 +641,7 @@ ${fragment?.bodyHtml ?? ''}
         setError(null);
         setNote(null);
         setTarget(sessionId);
-        loadSessions();
+        if (sessions.status !== 'ready' || Date.now() - sessions.loadedAt > 30000) loadSessions();
         loadTurns(sessionId);
       }
 
@@ -654,6 +661,7 @@ ${fragment?.bodyHtml ?? ''}
         try {
           const value = await postJson(BUILD_PATH, {
             sessionId: target,
+            format,
             lang: currentLang(),
             includeReasoning,
             includeTools,
@@ -943,7 +951,7 @@ ${fragment?.bodyHtml ?? ''}
 
     return {
       inject: ['slots', 'locale'],
-      __test: { assemblePdf, compactSelection, printDocumentFromFragment, shortId, xhtmlBody, analyzePage, i18nDict: I18N_DICT, translate: t, currentLang },
+      __test: { assemblePdf, compactSelection, cssForRaster, printDocumentFromFragment, shortId, xhtmlBody, analyzePage, i18nDict: I18N_DICT, translate: t, currentLang },
       apply(ctx) {
         if (typeof ctx.effect === 'function') ctx.effect(ensureStyle, 'chat-export: styles');
         else ensureStyle();

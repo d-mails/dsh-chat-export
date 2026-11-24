@@ -52,6 +52,11 @@ test('compactSelection uses include/exclude and bits', () => {
   assert.ok(typeof result.bits === 'string' && result.count === 2000);
 });
 
+test('PDF raster style wraps long code lines', () => {
+  const { cssForRaster } = plugin.__test;
+  assert.ok(cssForRaster('.dsh-export{}').includes('white-space:pre-wrap'));
+});
+
 test('assemblePdf produces a multi-page PDF structure', async () => {
   const { assemblePdf } = plugin.__test;
   const page = { bytes: new Uint8Array([0xff, 0xd8, 0xff, 0xd9]), width: 1588, height: 2246 };

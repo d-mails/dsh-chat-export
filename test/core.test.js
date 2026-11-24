@@ -155,6 +155,23 @@ test('ignores non-user injected messages and injection-only turns', () => {  con
   assert.equal(stats.injectedUserMessages, 1);
 });
 
+test('renders image and file attachments as readable labels', () => {
+  const events = [
+    ev('turn/start', { turn: 1 }, { seq: 1 }),
+    surface('user/message', {
+      role: 'user',
+      source: { kind: 'user' },
+      content: [
+        { type: 'image', attachment: { name: 'photo.png', width: 640, height: 480, bytes: 1234 } },
+        { type: 'file', attachment: { name: 'notes.pdf', bytes: 5678 } },
+      ],
+    }, { seq: 2 }),
+    ev('turn/end', { turn: 1, reason: { kind: 'completed' } }, { seq: 3 }),
+  ];
+  const { entries } = extractConversation(events);
+  assert.equal(entries[0].humans[0], '[Image: photo.png (640×480, 1234 bytes)]\n\n[File: notes.pdf (5678 bytes)]');
+});
+
 test('treats a goal source message as a human turn', () => {
   const events = [
     ev('turn/start', { turn: 1 }, { seq: 1 }),
@@ -230,6 +247,18 @@ test('links allow http and reject javascript urls', () => {
   assert.ok(ok.includes('href="https://example.com"'));
   const bad = markdownToHtml('[a](javascript:alert(1))');
   assert.ok(!/href="javascript:/iu.test(bad));
+});
+
+test('underscores inside words are not emphasis', () => {
+  const html = markdownToHtml('snake_case_name');
+  assert.ok(!html.includes('<em>'));
+  assert.ok(html.includes('snake_case_name'));
+});
+
+test('link destinations may contain balanced parentheses', () => {
+  const html = markdownToHtml('[x](https://example.com/a_(b))');
+  assert.ok(html.includes('href="https://example.com/a_(b)"'));
+  assert.ok(html.includes('>x</a>'));
 });
 
 test('bare autolinks escape quotes in href attributes', () => {

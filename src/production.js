@@ -322,20 +322,30 @@ export function createBuildHandler({ readSession, trustedHosts = [], onError = (
     const includeTools = value.includeTools === true;
     const ignoreQuestions = value.ignoreQuestions === true;
     const lang = value.lang === 'zh' ? 'zh' : 'en';
+    const requestedFormat = value.format === 'md' || value.format === 'html' || value.format === 'pdf'
+      ? value.format
+      : 'all';
     const snapshot = canonicalSnapshot(sessionId, await readSession(sessionId));
     const { title, entries, stats } = extractConversation(snapshot.events, { includeReasoning, includeTools });
     let selected = selectEntries(entries, value.selection);
     if (ignoreQuestions) {
       selected = selected.map((entry) => ({ ...entry, humans: [] }));
     }
-    writeJson(response, 200, {
+    const payload = {
       sessionId,
       title: title ?? null,
       fileStem: fileStem(sessionId, title),
-      markdown: renderMarkdown(selected, title, { lang }),
-      html: renderHtmlDocument(selected, title, { lang }),
-      fragment: renderHtmlFragment(selected, title, { lang }),
       stats,
-    });
+    };
+    if (requestedFormat === 'all' || requestedFormat === 'md') {
+      payload.markdown = renderMarkdown(selected, title, { lang });
+    }
+    if (requestedFormat === 'all' || requestedFormat === 'html') {
+      payload.html = renderHtmlDocument(selected, title, { lang });
+    }
+    if (requestedFormat === 'all' || requestedFormat === 'pdf') {
+      payload.fragment = renderHtmlFragment(selected, title, { lang });
+    }
+    writeJson(response, 200, payload);
   }, admitRequest);
 }

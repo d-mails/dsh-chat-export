@@ -126,6 +126,23 @@ test('build handler returns markdown, html and fragment', async () => {
   assert.ok(value.fileStem.includes('--'));
 });
 
+test('build handler renders only the requested format', async () => {
+  const handler = createBuildHandler({ readSession: async (id) => sampleSnapshot(id), onError: () => {} });
+  const markdownRes = makeResponse();
+  await handler(makeRequest({ sessionId: 'sess-1', format: 'md' }), markdownRes);
+  const markdown = JSON.parse(markdownRes.body);
+  assert.ok(markdown.markdown.includes('回答 A'));
+  assert.equal(markdown.html, undefined);
+  assert.equal(markdown.fragment, undefined);
+
+  const pdfRes = makeResponse();
+  await handler(makeRequest({ sessionId: 'sess-1', format: 'pdf' }), pdfRes);
+  const pdf = JSON.parse(pdfRes.body);
+  assert.equal(pdf.markdown, undefined);
+  assert.equal(pdf.html, undefined);
+  assert.ok(pdf.fragment.bodyHtml.includes('回答 A'));
+});
+
 test('build handler includes reasoning when asked and honours selection', async () => {
   const handler = createBuildHandler({ readSession: async (id) => sampleSnapshot(id), onError: () => {} });
   const res = makeResponse();

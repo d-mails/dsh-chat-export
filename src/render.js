@@ -320,6 +320,7 @@ details.dsh-details[open] > summary { margin-bottom: 8px; }
   body.dsh-export { background: #ffffff; padding: 0; }
   .dsh-msg, details.dsh-details { break-inside: avoid; }
   details.dsh-details { display: block; }
+  .dsh-md pre.dsh-code code { white-space: pre-wrap; overflow-wrap: anywhere; }
 }
 `.trim();
 

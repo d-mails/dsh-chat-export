@@ -81,9 +81,23 @@ function createStats() {
     toolCallBlocks: 0,
     toolResultBlocks: 0,
     imageBlocks: 0,
+    fileBlocks: 0,
     unknownBlocks: 0,
     unknownEvents: 0,
   };
+}
+
+function attachmentLabel(block, kind) {
+  const attachment = isRecord(block.attachment) ? block.attachment : {};
+  const name = typeof attachment.name === 'string' ? attachment.name.trim() : '';
+  const details = [];
+  if (Number.isFinite(attachment.width) && Number.isFinite(attachment.height)) {
+    details.push(`${attachment.width}×${attachment.height}`);
+  }
+  if (Number.isFinite(attachment.bytes)) details.push(`${attachment.bytes} bytes`);
+  const suffix = details.length > 0 ? ` (${details.join(', ')})` : '';
+  if (kind === 'image') return name === '' ? '' : `[Image: ${name}${suffix}]`;
+  return name === '' ? '[File]' : `[File: ${name}${suffix}]`;
 }
 
 /** Join the visible text blocks of a message, collecting reasoning and tool calls. */
@@ -115,6 +129,11 @@ function analyzeContent(content, stats, sink) {
       stats.toolResultBlocks++;
     } else if (block.type === 'image') {
       stats.imageBlocks++;
+      const label = attachmentLabel(block, 'image');
+      if (label !== '') parts.push(label);
+    } else if (block.type === 'file') {
+      stats.fileBlocks++;
+      parts.push(attachmentLabel(block, 'file'));
     } else {
       stats.unknownBlocks++;
     }
@@ -256,7 +275,14 @@ export function extractConversation(events, options = {}) {
         if (Array.isArray(message?.content)) {
           const parts = [];
           for (const block of message.content) {
-            if (isRecord(block) && block.type === 'text' && typeof block.text === 'string') parts.push(block.text);
+            if (!isRecord(block)) continue;
+            if (block.type === 'text' && typeof block.text === 'string') parts.push(block.text);
+            else if (block.type === 'image') {
+              const label = attachmentLabel(block, 'image');
+              if (label !== '') parts.push(label);
+            } else if (block.type === 'file') {
+              parts.push(attachmentLabel(block, 'file'));
+            }
           }
           resultText = parts.join('\n\n');
         }
