@@ -454,7 +454,6 @@ ${fragment?.bodyHtml ?? ''}
       const pagePx = Math.round(A4H * SCALE);
       const minCutPx = Math.round(pagePx * 0.5);
       const maxCutPx = Math.min(pagePx, height - 1);
-      const darkLimit = Math.max(10, Math.floor(width * 0.01));
       let contentBottom = -1;
       let bestCut = -1;
       let runStart = -1;
@@ -470,7 +469,7 @@ ${fragment?.bodyHtml ?? ''}
           if (lum > max) max = lum;
           if (lum < 720) dark++;
         }
-        const blank = (max - min <= 12) || (dark * step <= darkLimit);
+        const blank = (max - min <= 12) || dark === 0;
         if (!blank) contentBottom = y;
         if (y >= minCutPx && y <= maxCutPx) {
           if (blank) {

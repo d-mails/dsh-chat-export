@@ -239,6 +239,27 @@ test('sessions handler lists non-subagent sessions with titles', async () => {
   assert.equal(value.sessions[0].title, '标题一');
 });
 
+test('build handler hides sessions absent from the visible session list', async () => {
+  const handler = createBuildHandler({
+    readSession: async (id) => sampleSnapshot(id),
+    listSessions: async () => [{ header: { id: 'sess-1' } }],
+    onError: () => {},
+  });
+  const res = makeResponse();
+  await handler(makeRequest({ sessionId: 'sess-hidden' }), res);
+  assert.equal(res.status, 404);
+  const okRes = makeResponse();
+  await handler(makeRequest({ sessionId: 'sess-1' }), okRes);
+  assert.equal(okRes.status, 200);
+});
+
+test('handlers reject an overlong session id', async () => {
+  const handler = createBuildHandler({ readSession: async (id) => sampleSnapshot(id), onError: () => {} });
+  const res = makeResponse();
+  await handler(makeRequest({ sessionId: 'x'.repeat(1000) }), res);
+  assert.equal(res.status, 400);
+});
+
 test('handlers reject wrong method, content type and bad body', async () => {
   const handler = createBuildHandler({ readSession: async (id) => sampleSnapshot(id), onError: () => {} });
   let res = makeResponse();

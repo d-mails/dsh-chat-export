@@ -90,6 +90,21 @@ test('print fallback wraps the expanded PDF fragment', () => {
   assert.ok(html.includes('.dsh-export{color:red}'));
 });
 
+test('analyzePage does not treat a sparse glyph row as blank', () => {
+  const { analyzePage } = plugin.__test;
+  const width = 40;
+  const height = 3000;
+  const data = new Uint8ClampedArray(width * height * 4).fill(255);
+  for (let y = 100; y < 124; y++) {
+    const i = (y * width + 10) * 4;
+    data[i] = 0; data[i + 1] = 0; data[i + 2] = 0;
+  }
+  const canvas = { width, height, getContext: () => ({ getImageData: () => ({ data }) }) };
+  const info = analyzePage(canvas);
+  assert.equal(info.blank, false);
+  assert.ok(info.contentBottomCss > 0);
+});
+
 test('analyzePage picks a cut inside a uniform blank band', () => {
   const { analyzePage } = plugin.__test;
   const width = 40;

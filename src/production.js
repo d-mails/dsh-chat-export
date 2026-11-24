@@ -105,7 +105,7 @@ async function readJsonBody(request) {
 }
 
 function sessionIdOf(value) {
-  if (typeof value.sessionId !== 'string' || value.sessionId.length === 0) {
+  if (typeof value.sessionId !== 'string' || value.sessionId.length === 0 || value.sessionId.length > 256) {
     throw new RequestError(400, 'request requires a non-empty sessionId');
   }
   return value.sessionId;
@@ -128,6 +128,18 @@ function writeText(response, status, text, extraHeaders = {}) {
     ...extraHeaders,
   });
   response.end(text);
+}
+
+async function assertVisible(listSessions, sessionId) {
+  if (typeof listSessions !== 'function') return;
+  const records = await listSessions();
+  if (!Array.isArray(records) || !records.some((record) => (
+    record?.header
+    && String(record.header.id) === sessionId
+    && record.header.origin !== 'subagent'
+  ))) {
+    throw new RequestError(404, 'session not found');
+  }
 }
 
 async function handle(request, response, trustedHosts, onError, run, admitRequest) {
@@ -297,10 +309,11 @@ export function createSessionsHandler({ listSessions, readTitleSnapshots, truste
   }, admitRequest);
 }
 
-export function createTurnsHandler({ readSession, trustedHosts = [], onError = () => {}, admitRequest }) {
+export function createTurnsHandler({ readSession, listSessions, trustedHosts = [], onError = () => {}, admitRequest }) {
   return (request, response) => handle(request, response, trustedHosts, onError, async () => {
     const value = await readJsonBody(request);
     const sessionId = sessionIdOf(value);
+    await assertVisible(listSessions, sessionId);
     const snapshot = canonicalSnapshot(sessionId, await readSession(sessionId));
     const { entries } = extractConversation(snapshot.events, {
       includeReasoning: false,
@@ -319,10 +332,11 @@ export function createTurnsHandler({ readSession, trustedHosts = [], onError = (
   }, admitRequest);
 }
 
-export function createBuildHandler({ readSession, trustedHosts = [], onError = () => {}, admitRequest }) {
+export function createBuildHandler({ readSession, listSessions, trustedHosts = [], onError = () => {}, admitRequest }) {
   return (request, response) => handle(request, response, trustedHosts, onError, async () => {
     const value = await readJsonBody(request);
     const sessionId = sessionIdOf(value);
+    await assertVisible(listSessions, sessionId);
     const includeReasoning = value.includeReasoning === true;
     const includeTools = value.includeTools === true;
     const ignoreQuestions = value.ignoreQuestions === true;
