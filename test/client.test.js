@@ -13,7 +13,10 @@ const ReactStub = {
   useRef: (initial) => ({ current: initial }),
   createElement: () => null,
 };
-const jsxRuntimeStub = { jsx: () => null, jsxs: () => null };
+const jsxRuntimeStub = {
+  jsx: (type, props) => ({ type, props }),
+  jsxs: (type, props) => ({ type, props }),
+};
 const plugin = captured.factory((id) => {
   if (id === 'react') return ReactStub;
   if (id === 'react/jsx-runtime') return jsxRuntimeStub;
@@ -55,6 +58,41 @@ test('compactSelection uses include/exclude and bits', () => {
 test('PDF raster style wraps long code lines', () => {
   const { cssForRaster } = plugin.__test;
   assert.ok(cssForRaster('.dsh-export{}').includes('white-space:pre-wrap'));
+});
+
+test('renders a session-list error with retry', () => {
+  const states = [
+    [true, () => {}],
+    [{ status: 'error', list: [], error: 'boom', loadedAt: 0 }, () => {}],
+    ['sess-1', () => {}],
+    [{ status: 'ready', list: [{ index: 0, human: 'q', assistant: 'a', hasReasoning: false, hasTools: false }], error: null }, () => {}],
+    [new Set([0]), () => {}],
+    ['md', () => {}],
+    [false, () => {}],
+    [false, () => {}],
+    [false, () => {}],
+    [false, () => {}],
+    [null, () => {}],
+    [null, () => {}],
+  ];
+  let index = 0;
+  const componentReact = { ...ReactStub, useState: () => states[index++] };
+  const componentPlugin = captured.factory((id) => {
+    if (id === 'react') return componentReact;
+    if (id === 'react/jsx-runtime') return jsxRuntimeStub;
+    if (id === 'react-dom') return { createPortal: (node) => node };
+    throw new Error('unexpected require ' + id);
+  });
+  const originalDocument = globalThis.document;
+  globalThis.document = { body: {} };
+  try {
+    const tree = componentPlugin.__test.ChatExportAction({ sessionId: 'sess-1' });
+    const text = JSON.stringify(tree);
+    assert.ok(text.includes('Failed to load conversations: boom'));
+    assert.ok(text.includes('Retry'));
+  } finally {
+    globalThis.document = originalDocument;
+  }
 });
 
 test('assemblePdf produces a multi-page PDF structure', async () => {

@@ -155,6 +155,19 @@ test('ignores non-user injected messages and injection-only turns', () => {  con
   assert.equal(stats.injectedUserMessages, 1);
 });
 
+test('extracts a committed v4 fixture with normal and goal turns', () => {
+  const events = JSON.parse(fs.readFileSync(new URL('./fixtures/session-v4.json', import.meta.url), 'utf8'));
+  const { title, entries } = extractConversation(events, { includeReasoning: true, includeTools: true });
+  assert.equal(title, 'Fixture conversation');
+  assert.equal(entries.length, 2);
+  assert.equal(entries[0].humans[0], 'Hello fixture');
+  assert.equal(entries[0].assistant, 'Final answer');
+  assert.equal(entries[0].reasoning, 'Think first');
+  assert.equal(entries[0].tools[0].result, 'ok');
+  assert.ok(entries[1].humans[0].includes('goal fixture'));
+  assert.equal(entries[1].assistant, 'Goal done');
+});
+
 test('metadata-only extraction keeps flags while truncating text', () => {
   const events = [
     ev('turn/start', { turn: 1 }, { seq: 1 }),

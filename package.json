@@ -54,7 +54,8 @@
   },
   "publishConfig": { "access": "public" },
   "scripts": {
-    "test": "node --test test/core.test.js test/client.test.js test/handlers.test.js"
+    "test": "node --test test/core.test.js test/client.test.js test/handlers.test.js",
+    "coverage": "node scripts/check-coverage.mjs 70"
   },
   "engines": { "node": ">=20" }
 }

@@ -1018,7 +1018,7 @@ ${fragment?.bodyHtml ?? ''}
 
     return {
       inject: ['slots', 'locale'],
-      __test: { assemblePdf, compactSelection, cssForRaster, printDocumentFromFragment, shortId, xhtmlBody, analyzePage, i18nDict: I18N_DICT, translate: t, currentLang },
+      __test: { ChatExportAction, assemblePdf, compactSelection, cssForRaster, printDocumentFromFragment, shortId, xhtmlBody, analyzePage, i18nDict: I18N_DICT, translate: t, currentLang },
       apply(ctx) {
         if (typeof ctx.effect === 'function') ctx.effect(ensureStyle, 'chat-export: styles');
         else ensureStyle();

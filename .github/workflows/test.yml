@@ -22,7 +22,7 @@ jobs:
           node --check client.js
           for f in src/*.js test/*.js; do node --check "$f"; done
           node -e "for (const f of ['locale/en.json','locale/zh.json']) JSON.parse(require('node:fs').readFileSync(f, 'utf8'))"
-      - name: Unit tests
-        run: node --test test/core.test.js test/client.test.js test/handlers.test.js
+      - name: Unit tests and coverage gate
+        run: npm run coverage
       - name: Package contents
         run: npm pack --dry-run
