@@ -64,7 +64,8 @@ window.__ModuleLoader__.load({
         "pdfRenderFailed": "PDF rendering failed",
         "tooManyPages": "Conversation is too long (over {pages} pages) for direct PDF generation. Turn off “Include tool calls” or use HTML / Markdown.",
         "loadingSessions": "Loading conversations…",
-        "sessionsError": "Failed to load conversations: {message}"
+        "sessionsError": "Failed to load conversations: {message}",
+        "cancelled": "Export cancelled."
       },
       zh: {
         "btnExport": "导出对话",
@@ -106,7 +107,8 @@ window.__ModuleLoader__.load({
         "pdfRenderFailed": "PDF 渲染失败",
         "tooManyPages": "对话过长（超过 {pages} 页），直接生成 PDF 可能很慢。请关闭“包含工具调用”或改用 HTML / Markdown。",
         "loadingSessions": "正在读取对话列表…",
-        "sessionsError": "对话列表读取失败：{message}"
+        "sessionsError": "对话列表读取失败：{message}",
+        "cancelled": "导出已取消。"
       }
     };
     let i18nTranslate = null;
@@ -519,7 +521,7 @@ ${fragment?.bodyHtml ?? ''}
       return canvas;
     }
 
-    async function buildPdfBlob(fragment) {
+    async function buildPdfBlob(fragment, isCancelled = () => false) {
       const estimatedHeight = measureExportHeight(fragment);
       if (estimatedHeight !== null && estimatedHeight > A4H * (MAX_PDF_PAGES + 2)) {
         throw new Error(t('tooManyPages', { pages: MAX_PDF_PAGES }));
@@ -538,11 +540,13 @@ ${fragment?.bodyHtml ?? ''}
         });
       };
       for (let guard = 0; guard < 300; guard++) {
+        if (isCancelled()) throw new Error('cancelled');
         const chunk = await rasterPage(svgForPage(bodyHtml, css, start, chunkHeight), chunkHeight);
         let offset = 0;
         let produced = 0;
         let finished = false;
         while (produced < PDF_CHUNK_PAGES && offset < chunkHeight) {
+          if (isCancelled()) throw new Error('cancelled');
           const windowCanvas = copyCanvasWindow(
             chunk,
             Math.round(offset * SCALE),
@@ -609,6 +613,7 @@ ${fragment?.bodyHtml ?? ''}
       const sessionsRequest = useRef(0);
       const turnsRequest = useRef(0);
       const busyRef = useRef(false);
+      const cancelledRef = useRef(false);
       busyRef.current = busy;
 
       useEffect(() => {
@@ -706,6 +711,7 @@ ${fragment?.bodyHtml ?? ''}
           setError(t('selectAtLeastOne'));
           return;
         }
+        cancelledRef.current = false;
         setBusy(true);
         try {
           const value = await postJson(BUILD_PATH, {
@@ -727,10 +733,14 @@ ${fragment?.bodyHtml ?? ''}
           } else {
             setNote(t('generatingPdf'));
             try {
-              const blob = await buildPdfBlob(value.fragment);
+              const blob = await buildPdfBlob(value.fragment, () => cancelledRef.current);
               saveBlob(blob, stem + '.pdf');
               setNote(t('exported', { name: stem + '.pdf' }));
             } catch (pdfError) {
+              if (pdfError instanceof Error && pdfError.message === 'cancelled') {
+                setNote(t('cancelled'));
+                return;
+              }
               const reason = errorMessage(pdfError);
               const printHtml = value.fragment === undefined ? value.html : printDocumentFromFragment(value.fragment);
               if (printHtmlDocument(printHtml)) {
@@ -979,7 +989,15 @@ ${fragment?.bodyHtml ?? ''}
                   jsxs('div', {
                     className: 'dshChatExportFoot',
                     children: [
-                      jsx('button', { type: 'button', className: 'dshChatExportSecondary', disabled: busy, onClick: closeDialog, children: t('cancel') }),
+                      jsx('button', {
+                        type: 'button',
+                        className: 'dshChatExportSecondary',
+                        onClick: () => {
+                          if (busyRef.current) cancelledRef.current = true;
+                          else closeDialog();
+                        },
+                        children: t('cancel'),
+                      }),
                       jsx('button', {
                         type: 'button',
                         className: 'dshChatExportPrimary',
