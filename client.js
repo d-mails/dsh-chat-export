@@ -318,6 +318,7 @@ ${fragment?.bodyHtml ?? ''}
     const A4H = 1123;
     const SCALE = 2;
     const MAX_PDF_PAGES = 150;
+    const PDF_CHUNK_PAGES = 4;
 
     function measureExportHeight(fragment) {
       if (typeof document === 'undefined') return null;
@@ -509,6 +510,15 @@ ${fragment?.bodyHtml ?? ''}
       };
     }
 
+    function copyCanvasWindow(source, y, height) {
+      const canvas = document.createElement('canvas');
+      canvas.width = source.width;
+      canvas.height = Math.max(1, height);
+      const context = canvas.getContext('2d', { willReadFrequently: true });
+      context.drawImage(source, 0, y, source.width, height, 0, 0, source.width, height);
+      return canvas;
+    }
+
     async function buildPdfBlob(fragment) {
       const estimatedHeight = measureExportHeight(fragment);
       if (estimatedHeight !== null && estimatedHeight > A4H * (MAX_PDF_PAGES + 2)) {
@@ -517,6 +527,7 @@ ${fragment?.bodyHtml ?? ''}
       const css = cssForRaster(fragment.style);
       const bodyHtml = fragment.bodyHtml;
       const renderHeight = A4H + PAGE_SLACK;
+      const chunkHeight = PDF_CHUNK_PAGES * A4H + PAGE_SLACK;
       const jpegPages = [];
       let start = 0;
       const pushCanvas = (canvas) => {
@@ -527,29 +538,44 @@ ${fragment?.bodyHtml ?? ''}
         });
       };
       for (let guard = 0; guard < 300; guard++) {
-        const canvas = await rasterPage(svgForPage(bodyHtml, css, start, renderHeight), renderHeight);
-        const info = analyzePage(canvas);
-        if (info.blank) break;
-        let cutCss;
-        if (info.contentBottomCss <= A4H - 0.5) {
-          cutCss = Math.min(A4H, info.contentBottomCss + 6);
-        } else if (info.cutCss !== null) {
-          cutCss = Math.min(A4H, info.cutCss);
-        } else {
-          cutCss = A4H; // extremely dense block without a gap; last resort
+        const chunk = await rasterPage(svgForPage(bodyHtml, css, start, chunkHeight), chunkHeight);
+        let offset = 0;
+        let produced = 0;
+        let finished = false;
+        while (produced < PDF_CHUNK_PAGES && offset < chunkHeight) {
+          const windowCanvas = copyCanvasWindow(
+            chunk,
+            Math.round(offset * SCALE),
+            Math.round(renderHeight * SCALE),
+          );
+          const info = analyzePage(windowCanvas);
+          if (info.blank) {
+            finished = true;
+            break;
+          }
+          let cutCss;
+          if (info.contentBottomCss <= A4H - 0.5) {
+            cutCss = Math.min(A4H, info.contentBottomCss + 6);
+          } else if (info.cutCss !== null) {
+            cutCss = Math.min(A4H, info.cutCss);
+          } else {
+            cutCss = A4H; // extremely dense block without a gap; last resort
+          }
+          if (cutCss < 8) cutCss = Math.min(A4H, info.contentBottomCss + 6);
+          const cutPx = Math.max(1, Math.min(windowCanvas.height, Math.round(cutCss * SCALE)));
+          if (jpegPages.length >= MAX_PDF_PAGES) {
+            throw new Error(t('tooManyPages', { pages: MAX_PDF_PAGES }));
+          }
+          pushCanvas(copyCanvasWindow(windowCanvas, 0, cutPx));
+          start += cutCss;
+          offset += cutCss;
+          produced++;
+          if (cutCss <= 1) {
+            finished = true;
+            break;
+          }
         }
-        if (cutCss < 8) cutCss = Math.min(A4H, info.contentBottomCss + 6);
-        const cutPx = Math.max(1, Math.min(canvas.height, Math.round(cutCss * SCALE)));
-        const page = document.createElement('canvas');
-        page.width = canvas.width;
-        page.height = cutPx;
-        page.getContext('2d').drawImage(canvas, 0, 0, canvas.width, cutPx, 0, 0, canvas.width, cutPx);
-        if (jpegPages.length >= MAX_PDF_PAGES) {
-          throw new Error(t('tooManyPages', { pages: MAX_PDF_PAGES }));
-        }
-        pushCanvas(page);
-        start += cutCss;
-        if (cutCss <= 1) break;
+        if (finished || produced === 0) break;
       }
       if (jpegPages.length === 0) {
         const blank = document.createElement('canvas');
