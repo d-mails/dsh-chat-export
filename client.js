@@ -469,7 +469,7 @@ ${fragment?.bodyHtml ?? ''}
     function analyzePage(canvas) {
       const width = canvas.width;
       const height = canvas.height;
-      const data = canvas.getContext('2d').getImageData(0, 0, width, height).data;
+      const data = canvas.getContext('2d', { willReadFrequently: true }).getImageData(0, 0, width, height).data;
       const step = 2;
       const pagePx = Math.round(A4H * SCALE);
       const minCutPx = Math.round(pagePx * 0.5);
