@@ -419,6 +419,21 @@ test('unparseable dsh-ui fence degrades to a note', () => {
   assert.ok(!out.includes('dsh-ui'));
 });
 
+test('dsh-ui form and choice components export their labels', () => {
+  const spec = {
+    items: [
+      { type: 'input', label: 'Name', value: 'Ada' },
+      { type: 'choices', title: 'Pick', prompt: 'Which one?', items: [{ label: 'A', hint: 'cheap' }, { label: 'B' }] },
+      { type: 'checkbox', label: 'Agree', checked: true },
+      { type: 'button', label: 'Submit' },
+    ],
+  };
+  const expanded = expandUiFences('```dsh-ui\n' + JSON.stringify(spec) + '\n```');
+  for (const text of ['Name', 'Ada', 'Which one?', 'A', 'cheap', 'Agree', 'Submit']) {
+    assert.ok(expanded.includes(text), text);
+  }
+});
+
 test('dsh-ui cards and nested components export their content', () => {
   const spec = {
     title: 'Dashboard',

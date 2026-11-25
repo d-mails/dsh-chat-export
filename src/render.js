@@ -245,6 +245,76 @@ function uiSpecToMarkdown(spec, lang) {
             }
           }
           break;
+        case 'input':
+        case 'textarea': {
+          const label = item.label ?? item.id ?? '';
+          const value = item.value ?? '';
+          out.push(value === '' ? `- **${mdCell(label)}**` : `- **${mdCell(label)}**: ${mdCell(value)}`);
+          break;
+        }
+        case 'select':
+        case 'segmented-control':
+        case 'date-picker':
+        case 'slider': {
+          const label = item.label ?? item.id ?? '';
+          const selected = Array.isArray(item.options) && Number.isInteger(item.selected)
+            ? item.options[item.selected]
+            : (item.value ?? '');
+          out.push(`- **${mdCell(label)}**: ${mdCell(selected)}`);
+          break;
+        }
+        case 'checkbox':
+        case 'switch':
+          out.push(`- [${item.checked === true ? 'x' : ' '}] ${mdCell(item.label ?? '')}`);
+          break;
+        case 'radio':
+        case 'quiz': {
+          const title = item.label ?? item.question ?? '';
+          const options = Array.isArray(item.options) ? item.options : [];
+          out.push(`**${mdCell(title)}**`);
+          out.push(options.map((option, index) => {
+            const text = typeof option === 'string' ? option : (option?.label ?? '');
+            return `- ${mdCell(text)}${Number.isInteger(item.selected) && item.selected === index ? ' (selected)' : ''}`;
+          }).join('\n'));
+          break;
+        }
+        case 'choices': {
+          if (typeof item.title === 'string' && item.title.trim() !== '') out.push(`**${item.title.trim()}**`);
+          if (typeof item.prompt === 'string' && item.prompt.trim() !== '') out.push(item.prompt.trim());
+          if (Array.isArray(item.items)) {
+            out.push(item.items.map((choice) => {
+              const hint = choice?.hint ? ` — ${mdCell(choice.hint)}` : '';
+              const meta = choice?.meta ? ` [${mdCell(choice.meta)}]` : '';
+              return `- ${mdCell(choice?.label ?? '')}${hint}${meta}`;
+            }).join('\n'));
+          }
+          break;
+        }
+        case 'submit':
+        case 'button':
+          if (typeof item.label === 'string' && item.label.trim() !== '') out.push(`- ${item.label.trim()}`);
+          break;
+        case 'link':
+          if (typeof item.label === 'string' && item.label.trim() !== '') {
+            out.push(typeof item.href === 'string' && item.href.trim() !== '' ? `[${item.label.trim()}](${item.href.trim()})` : item.label.trim());
+          }
+          break;
+        case 'entity-card':
+          out.push([item.name, item.description].filter((value) => typeof value === 'string' && value.trim() !== '').join('\n\n'));
+          if (Array.isArray(item.metadata)) out.push(item.metadata.map((entry) => L.keyValue(mdCell(entry?.label), mdCell(entry?.value))).join('\n'));
+          break;
+        case 'copy':
+          out.push([item.label, item.text].filter((value) => typeof value === 'string' && value.trim() !== '').join('\n\n'));
+          break;
+        case 'popover':
+          out.push([item.label, item.content].filter((value) => typeof value === 'string' && value.trim() !== '').join('\n\n'));
+          break;
+        case 'svg':
+        case 'mermaid':
+        case 'diagram':
+        case 'scene3d':
+          out.push(`[${item.type}${item.title ? `: ${item.title}` : ''}]`);
+          break;
         default:
           if (typeof item.content === 'string' && item.content.trim() !== '') out.push(item.content);
           break;
